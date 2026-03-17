@@ -1,8 +1,14 @@
 import sqlite3
 import random
+import os
+import sys
 from datetime import datetime, timedelta
 
 DB_NAME = "family_clinic.db"
+
+# Ensure the modules directory is on the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from modules.clinic_crm import ClinicCRM
 
 # --- EXPANDED FANTASY DATA POOLS ---
 FIRST_NAMES = ["Frodo", "Samwise", "Aragorn", "Gandalf", "Legolas", "Gimli", "Boromir", "Elrond", "Galadriel", "Arwen", "Eowyn", "Faramir", "Theoden", "Thorin", "Harry", "Ron", "Hermione", "Albus", "Severus", "Minerva", "Rubeus", "Sirius", "Remus", "Neville", "Jon", "Daenerys", "Tyrion", "Arya", "Sansa", "Bran", "Robb", "Ned", "Catelyn", "Cersei", "Jaime", "Jorah", "Sandor", "Brienne", "Geralt", "Yennefer", "Ciri", "Triss", "Dandelion", "Vesemir"]
@@ -22,6 +28,10 @@ def random_date(start_days_ago, end_days_ago):
     return now.replace(hour=random.randint(8, 17), minute=random.choice([0, 15, 30, 45]), second=0) - delta
 
 def generate_data():
+    # Ensure schema exists before inserting data
+    crm = ClinicCRM(DB_NAME)
+    crm.initialize_database()
+
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
