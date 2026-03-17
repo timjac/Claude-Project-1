@@ -1558,6 +1558,10 @@ elif st.session_state.page == "Admin Console":
 
                 # Re-init zone editor when selection changes
                 if st.session_state.get('et_selected') != edit_test_name:
+                    # Wipe ALL et_ widget keys so no values bleed from the previous test
+                    for _k in list(st.session_state.keys()):
+                        if _k.startswith('et_') and _k != 'et_selected':
+                            del st.session_state[_k]
                     st.session_state['et_selected'] = edit_test_name
                     try:
                         _et_cfg_init = json.loads(edit_row['JSON'] or '{}')
