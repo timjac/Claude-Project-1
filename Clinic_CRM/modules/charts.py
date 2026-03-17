@@ -65,10 +65,11 @@ def _darken_color(hex_color, factor=0.65):
 
 
 def _find_zone_color(value, zones):
-    """Return the color of the zone the value falls in, or grey if none match."""
+    """Return the color of the zone the value falls in, skipping transparent. Grey if none match."""
     for zone in zones:
-        if float(zone['from']) <= value <= float(zone['to']):
-            return zone['color']
+        color = zone.get('color', '#D4EDDA')
+        if color != 'transparent' and float(zone['from']) <= value <= float(zone['to']):
+            return color
     return '#888888'
 
 
@@ -106,6 +107,8 @@ def render_gauge(value, config, test_name="", unit=""):
     def fmt(v):
         return str(int(v)) if float(v).is_integer() else f"{v:.1f}"
 
+    show_labels = config.get("show_axis_labels", True)
+
     if gauge_style == "straight":
         fig, ax = plt.subplots()
         total_range = axis_max - axis_min
@@ -113,14 +116,16 @@ def render_gauge(value, config, test_name="", unit=""):
         for zone in zones:
             z_from = max(float(zone['from']), axis_min)
             z_to = min(float(zone['to']), axis_max)
-            if z_to > z_from:
-                ax.barh(0, z_to - z_from, left=z_from, color=zone['color'], height=0.4, zorder=1)
+            color = zone.get('color', '#D4EDDA')
+            if z_to > z_from and color != 'transparent':
+                ax.barh(0, z_to - z_from, left=z_from, color=color, height=0.4, zorder=1)
 
         # Indicator line
         ax.plot([val, val], [-0.35, 0.35], color=indicator_color, lw=4, zorder=5)
 
-        ax.text(axis_min, -0.55, fmt(axis_min), ha='left', va='top', fontsize=9, color='#555555')
-        ax.text(axis_max, -0.55, fmt(axis_max), ha='right', va='top', fontsize=9, color='#555555')
+        if show_labels:
+            ax.text(axis_min, -0.55, fmt(axis_min), ha='left', va='top', fontsize=9, color='#555555')
+            ax.text(axis_max, -0.55, fmt(axis_max), ha='right', va='top', fontsize=9, color='#555555')
 
         for zone in zones:
             z_mid = (float(zone['from']) + float(zone['to'])) / 2
@@ -131,6 +136,7 @@ def render_gauge(value, config, test_name="", unit=""):
         ax.set_xlim(axis_min - pad, axis_max + pad)
         ax.set_ylim(-1, 1)
         ax.set_yticks([])
+        ax.set_xticks([])
 
         return _export(fig, ax)
 
@@ -152,11 +158,12 @@ def render_gauge(value, config, test_name="", unit=""):
         for zone in zones:
             z_from = max(float(zone['from']), axis_min)
             z_to = min(float(zone['to']), axis_max)
-            if z_to > z_from:
+            color = zone.get('color', '#D4EDDA')
+            if z_to > z_from and color != 'transparent':
                 angle_start = val_to_angle(z_to)
                 angle_end = val_to_angle(z_from)
                 arc = patches.Wedge((0, 0), 1, angle_start, angle_end,
-                                    width=0.3, color=zone['color'], zorder=2)
+                                    width=0.3, color=color, zorder=2)
                 ax.add_patch(arc)
 
         # Needle
@@ -170,8 +177,9 @@ def render_gauge(value, config, test_name="", unit=""):
                                    color=indicator_color, shrinkA=0, shrinkB=0), zorder=3)
         ax.add_patch(patches.Circle((0, 0), 0.15, color=indicator_color, zorder=4))
 
-        ax.text(-0.95, -0.15, fmt(axis_min), ha='center', va='top', fontsize=9, color='#555555')
-        ax.text(0.95, -0.15, fmt(axis_max), ha='center', va='top', fontsize=9, color='#555555')
+        if show_labels:
+            ax.text(-0.95, -0.15, fmt(axis_min), ha='center', va='top', fontsize=9, color='#555555')
+            ax.text(0.95, -0.15, fmt(axis_max), ha='center', va='top', fontsize=9, color='#555555')
 
         ax.set_xlim(-1.1, 1.1)
         ax.set_ylim(-0.3, 1.1)
@@ -219,10 +227,11 @@ def render_dot(values_dict, config, test_name="", unit=""):
     for zone in zones:
         z_from = max(float(zone['from']), axis_min)
         z_to = min(float(zone['to']), axis_max)
-        if z_to > z_from:
+        color = zone.get('color', '#D4EDDA')
+        if z_to > z_from and color != 'transparent':
             ax.add_patch(patches.Rectangle(
                 (z_from, -0.4), z_to - z_from, 0.8,
-                color=zone['color'], alpha=0.5, zorder=0))
+                color=color, alpha=0.5, zorder=0))
 
     # Connecting line between outermost dots
     if len(dot_positions) >= 2:
@@ -278,10 +287,11 @@ def render_bars(panel_items, config=None):
         for zone in zones:
             z_from = float(zone['from'])
             z_to = float(zone['to'])
-            if z_to > z_from:
+            color = zone.get('color', '#D4EDDA')
+            if z_to > z_from and color != 'transparent':
                 ax.add_patch(patches.Rectangle(
                     (z_from, i - 0.4), z_to - z_from, 0.8,
-                    color=zone['color'], zorder=1))
+                    color=color, zorder=1))
 
         # Bar color: alert if value lands in a red/orange zone
         zone_color = _find_zone_color(val, zones)

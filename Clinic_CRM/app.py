@@ -950,7 +950,8 @@ elif st.session_state.page == "Admin Console":
                 st.session_state[f'{pfx}_zone_color_{i}']  = '#D4EDDA'
                 st.session_state[f'{pfx}_zone_label_{i}']  = ''
             if config.get('graph_type') == 'gauge':
-                st.session_state[f'{pfx}_gauge_style'] = config.get('gauge_style', 'curved')
+                st.session_state[f'{pfx}_gauge_style']      = config.get('gauge_style', 'curved')
+                st.session_state[f'{pfx}_show_axis_labels'] = config.get('show_axis_labels', True)
             if config.get('graph_type') == 'dot':
                 dots = config.get('dots', [])
                 nd = max(len(dots), 2)
@@ -981,7 +982,7 @@ elif st.session_state.page == "Admin Console":
             Returns True if any zones have validation issues.
             """
             has_issues = False
-            _zh = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.5])
+            _zh = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.8])
             for _lbl, _c in zip(["From ↓", "To", "Colour", "Label", "Transp.", ""], _zh):
                 _c.caption(_lbl)
             for i in range(n):
@@ -990,7 +991,7 @@ elif st.session_state.page == "Admin Console":
                 bad    = to_v <= from_v
                 if bad:
                     has_issues = True
-                _zc = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.5])
+                _zc = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.8])
                 # From: read-only, warning colour if bad
                 _zc[0].markdown(f"**:red[{from_v:g} ⚠]**" if bad else f"**{from_v:g}**")
                 # To: number input
@@ -1018,7 +1019,8 @@ elif st.session_state.page == "Admin Console":
                 _zc[4].checkbox("", key=f'{pfx}_zone_transp_{i}',
                                 label_visibility="collapsed")
                 # Remove
-                if _zc[5].button("✕", key=f'{pfx}_zone_rm_{i}{rm_key_sfx}') and n > 1:
+                if _zc[5].button("✕", key=f'{pfx}_zone_rm_{i}{rm_key_sfx}',
+                                  use_container_width=True) and n > 1:
                     for j in range(i, n - 1):
                         for s in ['to', 'color', 'transp', 'label']:
                             src = f'{pfx}_zone_{s}_{j+1}'
@@ -1094,6 +1096,9 @@ elif st.session_state.page == "Admin Console":
                                                     st.session_state.get('nt_gauge_style','curved')),
                                                 key="nt_gauge_style_radio")
                     st.session_state['nt_gauge_style'] = nt_gauge_style
+                    if 'nt_show_axis_labels' not in st.session_state:
+                        st.session_state['nt_show_axis_labels'] = True
+                    _gc2.checkbox("Show min/max labels", key='nt_show_axis_labels')
 
                     _az_col, _ = st.columns(2)
                     if 'nt_axis_start' not in st.session_state:
@@ -1270,6 +1275,7 @@ elif st.session_state.page == "Admin Console":
                                 _cfg = {
                                     "graph_type": "gauge",
                                     "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
+                                    "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
                                     "axis_min": _ax_min,
                                     "axis_max": _ax_max,
                                     "zones": _zones
@@ -1385,6 +1391,7 @@ elif st.session_state.page == "Admin Console":
                         _prev_cfg = {
                             "graph_type": "gauge",
                             "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
+                            "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
                             "axis_min": _ax_min, "axis_max": _ax_max,
                             "zones": _zones_prev
                         }
@@ -1586,12 +1593,15 @@ elif st.session_state.page == "Admin Console":
                     _etm2.text_input("Target Display Text", key='et_target')
 
                     if _et_gt == "gauge":
-                        _etc1, _ = st.columns(2)
+                        _etc1, _etc2 = st.columns(2)
                         _et_gs = _etc1.radio("Style", ["curved", "straight"],
                                               index=["curved", "straight"].index(
                                                   st.session_state.get('et_gauge_style', 'curved')),
                                               key="et_gauge_style_radio")
                         st.session_state['et_gauge_style'] = _et_gs
+                        if 'et_show_axis_labels' not in st.session_state:
+                            st.session_state['et_show_axis_labels'] = True
+                        _etc2.checkbox("Show min/max labels", key='et_show_axis_labels')
                         _etaz_col, _ = st.columns(2)
                         if 'et_axis_start' not in st.session_state:
                             st.session_state['et_axis_start'] = 0.0
@@ -1700,6 +1710,7 @@ elif st.session_state.page == "Admin Console":
                             _et_new_cfg = {
                                 "graph_type": "gauge",
                                 "gauge_style": st.session_state.get('et_gauge_style', 'curved'),
+                                "show_axis_labels": st.session_state.get('et_show_axis_labels', True),
                                 "axis_min": _et_ax_min,
                                 "axis_max": _et_ax_max,
                                 "zones": _et_zones
@@ -1765,6 +1776,7 @@ elif st.session_state.page == "Admin Console":
                             _et_img = render_gauge(_mock_v, {
                                 "graph_type": "gauge",
                                 "gauge_style": st.session_state.get('et_gauge_style', 'curved'),
+                                "show_axis_labels": st.session_state.get('et_show_axis_labels', True),
                                 "axis_min": _et_ax_min_p, "axis_max": _et_ax_max_p,
                                 "zones": _et_zones_p
                             })
