@@ -3,16 +3,15 @@ import json
 from datetime import datetime
 from fpdf import FPDF
 
-# Import your charting functions
+# Import charting functions
 from modules.charts import (
-    create_gauge_chart,
-    create_bmi_chart,
-    create_bp_chart,
+    render_gauge,
+    render_dot,
+    render_bars,
+    render_text,
     create_trend_chart,
     create_bp_trend_chart,
-    create_multi_bar_panel,
     create_multi_trend_chart,
-    create_text_only_display
 )
 
 # ==========================================
@@ -359,55 +358,120 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
         unit = latest[3]
         config_str = latest[5]
         display_target = latest[7] if latest[7] else 'N/A'
-        chart_type = latest[8]  
-        
-        try: config = json.loads(config_str) if config_str else {}
-        except json.JSONDecodeError: config = {}
 
+        try:
+            config = json.loads(config_str) if config_str else {}
+        except json.JSONDecodeError:
+            config = {}
+
+        graph_type = config.get("graph_type", "none")
         trend_chart_type = latest[16] if len(latest) > 16 else 'line'
 
         img_gauge, img_trend = None, None
         display_title = group_name
         display_val = str(val)
         display_unit = unit if unit else ''
+        history_data = []
 
         # Standard Wireframe Height
         dynamic_chart_h = 42
 
-        # --- ROUTING ENGINE ---
-        if chart_type == 'text_only':
-            display_val = str(val)
+        # --- ROUTING ENGINE (reads graph_type from chart_config JSON) ---
+        if graph_type == 'none':
             display_target = "N/A"
-            
-            # Generate the large typographic image for the right-hand column
-            img_gauge = create_text_only_display(val, unit)
-            
+            img_gauge = render_text(val, unit)
+
             if trend_chart_type == 'line' and len(group_data) > 1:
                 img_trend = create_trend_chart(group_data, test_name, unit)
-                    
+
             history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
-            
-        elif chart_type == 'multi_bar_panel':
+
+        elif graph_type == 'gauge':
+            img_gauge = render_gauge(val, config, test_name, unit)
+
+            if trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit)
+
+            history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
+
+        elif graph_type == 'dot':
+            # Collect all latest values for this group (one per test_name)
+            values_dict = {}
+            for t in group_data:
+                if t[2] is not None and t[1] not in values_dict:
+                    try:
+                        values_dict[t[1]] = float(t[2])
+                    except (ValueError, TypeError):
+                        pass
+
+            # Use the config that carries the "dots" array (primary test)
+            primary_config = config
+            for t in group_data:
+                try:
+                    t_cfg = json.loads(t[5] or '{}')
+                    if t_cfg.get("dots"):
+                        primary_config = t_cfg
+                        break
+                except json.JSONDecodeError:
+                    pass
+
+            img_gauge = render_dot(values_dict, primary_config, test_name, unit)
+
+            # Build display value from dots array order
+            dots_cfg = primary_config.get("dots", [])
+            dot_vals = [str(values_dict.get(d["test_name"], "?")) for d in dots_cfg
+                        if d["test_name"] in values_dict]
+            display_val = "/".join(dot_vals) if dot_vals else str(val)
+
+            # Trend
+            sys_data = sorted([t for t in group_data if "Systolic" in t[1]],
+                               key=lambda x: x[0], reverse=True)
+            dia_data = sorted([t for t in group_data if "Diastolic" in t[1]],
+                               key=lambda x: x[0], reverse=True)
+            if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
+                img_trend = create_bp_trend_chart(sys_data, dia_data, primary_config)
+            elif trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit)
+
+            # Stitch history: SYS/DIA per date
+            history_dict = {}
+            sys_key = next((d["test_name"] for d in dots_cfg if "Sys" in d.get("test_name", "")), None)
+            dia_key = next((d["test_name"] for d in dots_cfg if "Dia" in d.get("test_name", "")), None)
+            for t in group_data:
+                d_key = t[0].split()[0]
+                if d_key not in history_dict:
+                    history_dict[d_key] = {"sys": "?", "dia": "?"}
+                if t[1] == sys_key:
+                    history_dict[d_key]["sys"] = t[2]
+                elif t[1] == dia_key:
+                    history_dict[d_key]["dia"] = t[2]
+            history_data = [(d_key, f"{history_dict[d_key]['sys']}/{history_dict[d_key]['dia']}")
+                            for d_key in sorted(history_dict.keys(), reverse=True)]
+
+        elif graph_type == 'bar':
             panel_items = []
             for t_name in list(set([t[1] for t in group_data])):
-                t_data = [t for t in group_data if t[1] == t_name]
-                t_data.sort(key=lambda x: x[0], reverse=True)
+                t_data = sorted([t for t in group_data if t[1] == t_name],
+                                 key=lambda x: x[0], reverse=True)
                 latest_t = t_data[0]
-                
-                t_config_str = latest_t[5]
-                try: t_config = json.loads(t_config_str) if t_config_str else {}
-                except json.JSONDecodeError: t_config = {}
-                
+                try:
+                    t_config = json.loads(latest_t[5] or '{}') if latest_t[5] else {}
+                except json.JSONDecodeError:
+                    t_config = {}
                 panel_items.append({
                     "name": latest_t[1], "value": latest_t[2], "unit": latest_t[3],
                     "target": latest_t[7] if latest_t[7] else "", "config": t_config
                 })
-                
+
             panel_items.sort(key=lambda x: x["name"])
-            img_gauge = create_multi_bar_panel(panel_items)
-            
-            display_val = "\n".join([f"{item['name'].replace(f' {group_name}', '').replace('Cholesterol', '').strip()}: {item['value']} {item['unit']}" for item in panel_items])
-            display_unit = "" 
+            img_gauge = render_bars(panel_items)
+
+            display_val = "\n".join([
+                f"{item['name'].replace(f' {group_name}', '').replace('Cholesterol', '').strip()}: "
+                f"{item['value']} {item['unit']}"
+                for item in panel_items
+            ])
+            display_unit = ""
             display_target = "See Chart"
             dynamic_chart_h = max(42, 20 + (len(panel_items) * 10))
 
@@ -418,67 +482,18 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             elif trend_chart_type == 'line' and len(group_data) > 1:
                 img_trend = create_trend_chart(group_data, test_name, unit)
 
-            # --- NEW: STITCH CHOLESTEROL HISTORY ---
+            # Stitch panel history per date
             history_dict = {}
             for t in group_data:
                 d_key = t[0].split()[0]
                 t_clean = t[1].replace(f" {group_name}", "").replace("Cholesterol", "").strip()
-                if d_key not in history_dict: history_dict[d_key] = []
+                if d_key not in history_dict:
+                    history_dict[d_key] = []
                 history_dict[d_key].append(f"{t_clean}: {t[2]}")
-                
-            history_data = []
-            for d_key in sorted(history_dict.keys(), reverse=True):
-                stitched_vals = " | ".join(sorted(history_dict[d_key]))
-                history_data.append((d_key, stitched_vals))
-            
-        elif chart_type == 'bmi_bullet':
-            img_gauge = create_bmi_chart(val, config)
-            if trend_chart_type == 'line' and len(group_data) > 1:
-                img_trend = create_trend_chart(group_data, test_name, unit)
-            history_data = [(t[0].split()[0], str(t[2])) for t in group_data] # Standard history
-            
-        elif chart_type == 'bp_range':
-            sys_data = [t for t in group_data if "Systolic" in t[1]]
-            dia_data = [t for t in group_data if "Diastolic" in t[1]]
-            
-            sys_data.sort(key=lambda x: x[0], reverse=True)
-            dia_data.sort(key=lambda x: x[0], reverse=True)
-            
-            if sys_data and dia_data:
-                latest_sys = sys_data[0]
-                latest_dia = dia_data[0]
-                
-                display_val = f"{latest_sys[2]}/{latest_dia[2]}"
-                display_target = "<120/<80"
-                
-                img_gauge = create_bp_chart(latest_sys[2], latest_dia[2], config, display_title, unit)
-                if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
-                    img_trend = create_bp_trend_chart(sys_data, dia_data, config)
-                elif trend_chart_type == 'line' and len(group_data) > 1:
-                    img_trend = create_trend_chart(group_data, test_name, unit)
-
-                # --- NEW: STITCH BP HISTORY ---
-                history_dict = {}
-                for t in sys_data:
-                    d_key = t[0].split()[0]
-                    if d_key not in history_dict: history_dict[d_key] = {"sys": t[2], "dia": "?"}
-                    else: history_dict[d_key]["sys"] = t[2]
-                for t in dia_data:
-                    d_key = t[0].split()[0]
-                    if d_key not in history_dict: history_dict[d_key] = {"sys": "?", "dia": t[2]}
-                    else: history_dict[d_key]["dia"] = t[2]
-
-                history_data = []
-                for d_key in sorted(history_dict.keys(), reverse=True):
-                    history_data.append((d_key, f"{history_dict[d_key]['sys']}/{history_dict[d_key]['dia']}"))
-            else:
-                history_data = []
-                
-        elif chart_type == 'gauge':
-            img_gauge = create_gauge_chart(val, config, test_name, unit)
-            if trend_chart_type == 'line' and len(group_data) > 1:
-                img_trend = create_trend_chart(group_data, test_name, unit)
-            history_data = [(t[0].split()[0], str(t[2])) for t in group_data] # Standard history
+            history_data = [
+                (d_key, " | ".join(sorted(history_dict[d_key])))
+                for d_key in sorted(history_dict.keys(), reverse=True)
+            ]
 
         # --- SMART GRANULAR NOTE AGGREGATION ---
 

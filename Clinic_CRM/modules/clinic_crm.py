@@ -263,31 +263,106 @@ class ClinicCRM:
             header_roles
         )
 
-        # --- Populate Test Definitions ---
+        # --- Populate Test Definitions (v2 chart_config format) ---
         definitions = [
-            # Changed Weight to text_only
-            ("Weight", "Weight", "kg", "N/A", "text_only", "Body mass", json.dumps({})),
-            ("Height", "Height", "cm", "N/A", "text_only", "Stature", json.dumps({})), 
-            ("BMI", "BMI", "kg/m2", "18.5-24.9", "bmi_bullet", "Body Mass Index", json.dumps({
-                 "axis_min": 10, "axis_max": 40,
-                 "zones": [{"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"}, 
-                           {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}]
+            ("Weight", "Weight", "kg", "N/A", "none", "Body mass", json.dumps({
+                "graph_type": "none"
             })),
-            ("Systolic", "Blood Pressure", "mmHg", "90-120", "bp_range", "Systolic Pressure", json.dumps({"axis_min": 40, "axis_max": 200, "safe_min": 90, "safe_max": 120})),
-            ("Diastolic", "Blood Pressure", "mmHg", "60-80", "bp_range", "Diastolic Pressure", json.dumps({"axis_min": 40, "axis_max": 200, "safe_min": 60, "safe_max": 80})),
-            ("Resting Heart Rate", "Resting Heart Rate", "bpm", "60-100", "gauge", "Pulse rate", json.dumps({"axis_min": 30, "axis_max": 150, "safe_min": 60, "safe_max": 100})),
-            ("Total Cholesterol", "Cholesterol", "mmol/L", "<5.0", "multi_bar_panel", "Lipid metric", json.dumps({"safe_min": 0.0, "safe_max": 5.0})),
-            ("HDL Cholesterol", "Cholesterol", "mmol/L", ">1.0", "multi_bar_panel", "Good cholesterol", json.dumps({"safe_min": 1.0, "safe_max": 10.0})),
-            ("LDL Cholesterol", "Cholesterol", "mmol/L", "<3.0", "multi_bar_panel", "Bad cholesterol", json.dumps({"safe_min": 0.0, "safe_max": 3.0})),
-            
-            # Fixed Blood Glucose scaling (0 to 15 axis, 4.0 to 5.9 safe zone)
-            ("Blood Glucose (Fasting)", "Blood Glucose (Fasting)", "mmol/L", "4.0-5.9", "gauge", "Sugar level", json.dumps({"axis_min": 0.0, "axis_max": 15.0, "safe_min": 4.0, "safe_max": 5.9})),
-            
-            # Fixed O2 Saturation scaling (80 to 100 axis, 95 to 100 safe zone)
-            ("O2 Saturation", "O2 Saturation", "%", ">95", "gauge", "Oxygen levels", json.dumps({"axis_min": 80.0, "axis_max": 100.0, "safe_min": 95.0, "safe_max": 100.0})),
-            
-            # Fixed Temp scaling (34 to 40 axis, 36.5 to 37.5 safe zone)
-            ("Temperature", "Temperature", "C", "36.5-37.5", "gauge", "Body temp", json.dumps({"axis_min": 34.0, "axis_max": 40.0, "safe_min": 36.5, "safe_max": 37.5}))
+            ("Height", "Height", "cm", "N/A", "none", "Stature", json.dumps({
+                "graph_type": "none"
+            })),
+            ("BMI", "BMI", "kg/m2", "18.5-24.9", "gauge", "Body Mass Index", json.dumps({
+                "graph_type": "gauge", "gauge_style": "straight",
+                "axis_min": 10, "axis_max": 40,
+                "zones": [
+                    {"from": 10,   "to": 18.5, "color": "#ADD8E6", "label": "Underweight"},
+                    {"from": 18.5, "to": 25.0, "color": "#D4EDDA", "label": "Healthy"},
+                    {"from": 25.0, "to": 30.0, "color": "#FFE4B5", "label": "Overweight"},
+                    {"from": 30.0, "to": 40.0, "color": "#FFCCCB", "label": "Obese"}
+                ]
+            })),
+            ("Systolic", "Blood Pressure", "mmHg", "90-120", "dot", "Systolic Pressure", json.dumps({
+                "graph_type": "dot",
+                "axis_min": 40, "axis_max": 200,
+                "zones": [
+                    {"from": 40,  "to": 90,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 90,  "to": 120, "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 120, "to": 200, "color": "#FFCCCB", "label": "High"}
+                ],
+                "dots": [
+                    {"test_name": "Systolic",  "fill_color": "#003366", "stroke_color": "#003366", "label": "SYS"},
+                    {"test_name": "Diastolic", "fill_color": "#FFFFFF",  "stroke_color": "#003366", "label": "DIA"}
+                ]
+            })),
+            ("Diastolic", "Blood Pressure", "mmHg", "60-80", "dot", "Diastolic Pressure", json.dumps({
+                "graph_type": "dot",
+                "dot_role": "secondary",
+                "axis_min": 40, "axis_max": 200,
+                "zones": [
+                    {"from": 40,  "to": 90,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 90,  "to": 120, "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 120, "to": 200, "color": "#FFCCCB", "label": "High"}
+                ]
+            })),
+            ("Resting Heart Rate", "Resting Heart Rate", "bpm", "60-100", "gauge", "Pulse rate", json.dumps({
+                "graph_type": "gauge", "gauge_style": "curved",
+                "axis_min": 30, "axis_max": 150,
+                "zones": [
+                    {"from": 30,  "to": 60,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 60,  "to": 100, "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 100, "to": 150, "color": "#FFCCCB", "label": "High"}
+                ]
+            })),
+            ("Total Cholesterol", "Cholesterol", "mmol/L", "<5.0", "bar", "Lipid metric", json.dumps({
+                "graph_type": "bar",
+                "bar_color": "#003366", "bar_alert_color": "#DC3545",
+                "zones": [
+                    {"from": 0.0, "to": 5.0,  "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 5.0, "to": 15.0, "color": "#FFCCCB", "label": "High"}
+                ]
+            })),
+            ("HDL Cholesterol", "Cholesterol", "mmol/L", ">1.0", "bar", "Good cholesterol", json.dumps({
+                "graph_type": "bar",
+                "bar_color": "#003366", "bar_alert_color": "#DC3545",
+                "zones": [
+                    {"from": 0.0, "to": 1.0,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 1.0, "to": 15.0, "color": "#D4EDDA", "label": "Good"}
+                ]
+            })),
+            ("LDL Cholesterol", "Cholesterol", "mmol/L", "<3.0", "bar", "Bad cholesterol", json.dumps({
+                "graph_type": "bar",
+                "bar_color": "#003366", "bar_alert_color": "#DC3545",
+                "zones": [
+                    {"from": 0.0, "to": 3.0,  "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 3.0, "to": 15.0, "color": "#FFCCCB", "label": "High"}
+                ]
+            })),
+            ("Blood Glucose (Fasting)", "Blood Glucose (Fasting)", "mmol/L", "4.0-5.9", "gauge", "Sugar level", json.dumps({
+                "graph_type": "gauge", "gauge_style": "curved",
+                "axis_min": 0.0, "axis_max": 15.0,
+                "zones": [
+                    {"from": 0.0, "to": 4.0,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 4.0, "to": 5.9,  "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 5.9, "to": 15.0, "color": "#FFCCCB", "label": "High"}
+                ]
+            })),
+            ("O2 Saturation", "O2 Saturation", "%", ">95", "gauge", "Oxygen levels", json.dumps({
+                "graph_type": "gauge", "gauge_style": "curved",
+                "axis_min": 80.0, "axis_max": 100.0,
+                "zones": [
+                    {"from": 80.0, "to": 95.0,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 95.0, "to": 100.0, "color": "#D4EDDA", "label": "Normal"}
+                ]
+            })),
+            ("Temperature", "Temperature", "C", "36.5-37.5", "gauge", "Body temp", json.dumps({
+                "graph_type": "gauge", "gauge_style": "curved",
+                "axis_min": 34.0, "axis_max": 40.0,
+                "zones": [
+                    {"from": 34.0, "to": 36.5, "color": "#FFCCCB", "label": "Low"},
+                    {"from": 36.5, "to": 37.5, "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 37.5, "to": 40.0, "color": "#FFCCCB", "label": "High"}
+                ]
+            }))
         ]
 
         self.cursor.executemany("""
@@ -303,8 +378,8 @@ class ClinicCRM:
                 test_group,
                 MAX(chart_type),
                 CASE MAX(chart_type)
-                    WHEN 'bp_range'        THEN 'bp_trend'
-                    WHEN 'multi_bar_panel' THEN 'multi_trend'
+                    WHEN 'dot' THEN 'bp_trend'
+                    WHEN 'bar' THEN 'multi_trend'
                     ELSE 'line'
                 END,
                 MAX(description)

@@ -795,12 +795,32 @@ elif st.session_state.page == "Admin Console":
             # --- Streamlined Dummy Data (Updated for new schema) ---
             dummy_patient = {"first_name": "Jane", "last_name": "Doe", "dob": "1982-08-24", "patient_id": "DEMO-001"}
             
-            # Padded out to match the new 16-column data structure for test results
+            # 17-column format: date, name, value, unit, group, config(v2), note, target,
+            #                   chart_type, result_id, status, taken_on, taken_by, taken_note,
+            #                   received_on, logged_by, trend_chart_type
+            _vd_cfg = json.dumps({
+                "graph_type": "gauge", "gauge_style": "curved",
+                "axis_min": 0, "axis_max": 150,
+                "zones": [
+                    {"from": 0,   "to": 50,  "color": "#FFCCCB", "label": "Low"},
+                    {"from": 50,  "to": 125, "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 125, "to": 150, "color": "#FFE4B5", "label": "High"}
+                ]
+            })
+            _gl_cfg = json.dumps({
+                "graph_type": "gauge", "gauge_style": "curved",
+                "axis_min": 0.0, "axis_max": 15.0,
+                "zones": [
+                    {"from": 0.0, "to": 4.0, "color": "#FFCCCB", "label": "Low"},
+                    {"from": 4.0, "to": 5.4, "color": "#D4EDDA", "label": "Normal"},
+                    {"from": 5.4, "to": 15.0, "color": "#FFCCCB", "label": "High"}
+                ]
+            })
             dummy_tests = [
-                ("2026-02-26", "Vitamin D", 68, "nmol/L", "Vitamin D", '{"safe_min": 50, "safe_max": 125}', "Levels are sufficient. Continue current supplement routine.", "50 - 125", "gauge", 1, "Complete", "2026-02-26", "Admin", "", "2026-02-26", "Admin"),
-                ("2026-02-26", "Fasting Glucose", 5.1, "mmol/L", "Blood Glucose", '{"safe_min": 4.0, "safe_max": 5.4}', "Excellent progress. Fasting levels have stabilized.", "4.0 - 5.4", "gauge", 2, "Complete", "2026-02-26", "Admin", "", "2026-02-26", "Admin"),
-                ("2025-11-10", "Fasting Glucose", 5.3, "mmol/L", "Blood Glucose", '{"safe_min": 4.0, "safe_max": 5.4}', "", "4.0 - 5.4", "gauge", 3, "Complete", "2025-11-10", "Admin", "", "2025-11-10", "Admin"),
-                ("2025-08-15", "Fasting Glucose", 5.6, "mmol/L", "Blood Glucose", '{"safe_min": 4.0, "safe_max": 5.4}', "", "4.0 - 5.4", "gauge", 4, "Complete", "2025-08-15", "Admin", "", "2025-08-15", "Admin")
+                ("2026-02-26", "Vitamin D",     68,  "nmol/L", "Vitamin D",    _vd_cfg, "Levels are sufficient. Continue current supplement routine.", "50 - 125", "gauge", 1, "Complete", "2026-02-26", "Admin", "", "2026-02-26", "Admin", "line"),
+                ("2026-02-26", "Fasting Glucose", 5.1, "mmol/L", "Blood Glucose", _gl_cfg, "Excellent progress. Fasting levels have stabilized.", "4.0 - 5.4", "gauge", 2, "Complete", "2026-02-26", "Admin", "", "2026-02-26", "Admin", "line"),
+                ("2025-11-10", "Fasting Glucose", 5.3, "mmol/L", "Blood Glucose", _gl_cfg, "", "4.0 - 5.4", "gauge", 3, "Complete", "2025-11-10", "Admin", "", "2025-11-10", "Admin", "line"),
+                ("2025-08-15", "Fasting Glucose", 5.6, "mmol/L", "Blood Glucose", _gl_cfg, "", "4.0 - 5.4", "gauge", 4, "Complete", "2025-08-15", "Admin", "", "2025-08-15", "Admin", "line"),
             ]
             
             dummy_config = [{"test": "Vitamin D"}, {"test": "Blood Glucose"}]
@@ -881,207 +901,488 @@ elif st.session_state.page == "Admin Console":
             else:
                 st.caption("No test panels defined yet.")
 
-        with st.expander("➕ Add Standalone Test (Gauge / BMI / Text / Blood Pressure)", expanded=False):
-            st.caption("Creates a test panel and its definition(s) in one step. For single-metric tests — nothing can be added to these panels later.")
-            _sc1, _sc2 = st.columns(2)
-            standalone_chart = _sc1.selectbox(
-                "Chart Style",
-                [
-                    "gauge (Standard dial chart)",
-                    "text_only (No chart, just numbers/text)",
-                    "bmi_bullet (BMI specific)",
-                    "bp_range (Blood Pressure — creates Systolic + Diastolic)"
-                ],
-                key="standalone_chart_select"
-            )
-            standalone_trend = _sc2.selectbox(
-                "Trend Chart",
-                [
-                    "line (Standard line trend)",
-                    "bp_trend (Blood Pressure river chart)",
-                    "none (No trend chart)"
-                ],
-                key="standalone_trend_select"
-            )
-            s_chart_val = standalone_chart.split(" ")[0]
-            s_trend_val = standalone_trend.split(" ")[0]
+        # ==========================================
+        # NEW TEST CREATION — Composable Zone-Based Flow
+        # ==========================================
 
-            with st.form("standalone_test_form", clear_on_submit=True):
-                if s_chart_val == "bp_range":
-                    st.markdown("**Blood Pressure Panel Setup**")
-                    st.caption("Creates a panel group with Systolic and Diastolic test definitions.")
-                    col1, col2 = st.columns(2)
-                    s_panel_name = col1.text_input("Panel Name", value="Blood Pressure")
-                    s_panel_desc = col2.text_input("Description (optional)", placeholder="e.g., Resting blood pressure")
-                    col3, col4, col5 = st.columns(3)
-                    s_sys_name = col3.text_input("Systolic Test Name", value="Systolic")
-                    s_dia_name = col4.text_input("Diastolic Test Name", value="Diastolic")
-                    s_bp_unit  = col5.text_input("Unit", value="mmHg")
-                    col6, col7 = st.columns(2)
-                    s_sys_target = col6.text_input("Systolic Target", value="90-120")
-                    s_dia_target = col7.text_input("Diastolic Target", value="60-80")
-                    st.markdown("#### Chart Boundaries")
-                    st.caption("Shared axis range and separate healthy zones for Systolic and Diastolic.")
-                    _b1, _b2 = st.columns(2)
-                    s_axis_min = _b1.number_input("Absolute Minimum (Left Edge)", value=40.0)
-                    s_axis_max = _b2.number_input("Absolute Maximum (Right Edge)", value=200.0)
-                    _b3, _b4, _b5, _b6 = st.columns(4)
-                    s_sys_safe_min = _b3.number_input("Systolic Safe Min", value=90.0)
-                    s_sys_safe_max = _b4.number_input("Systolic Safe Max", value=120.0)
-                    s_dia_safe_min = _b5.number_input("Diastolic Safe Min", value=60.0)
-                    s_dia_safe_max = _b6.number_input("Diastolic Safe Max", value=80.0)
-                else:
-                    col1, col2 = st.columns(2)
-                    s_test_name  = col1.text_input("Test Name (also used as Panel Name)")
-                    s_unit       = col2.text_input("Unit (e.g., nmol/L, %)")
-                    s_target     = st.text_input("Target Display Text (e.g., '50-125' or '>95')")
-                    s_panel_desc = st.text_input("Description (optional)", placeholder="e.g., Measures liver function")
-                    s_config_dict = {}
-                    if s_chart_val == "gauge":
-                        st.markdown("#### Chart Boundaries")
-                        st.caption("Define the absolute edges of the chart and the healthy 'Green' zone within it.")
-                        c1, c2, c3, c4 = st.columns(4)
-                        s_config_dict["axis_min"] = c1.number_input("Absolute Minimum", value=0.0,   key="s_axis_min")
-                        s_config_dict["safe_min"] = c2.number_input("Healthy Min",       value=0.0,   key="s_safe_min")
-                        s_config_dict["safe_max"] = c3.number_input("Healthy Max",        value=0.0,   key="s_safe_max")
-                        s_config_dict["axis_max"] = c4.number_input("Absolute Maximum",  value=100.0, key="s_axis_max")
-                    elif s_chart_val == "bmi_bullet":
-                        st.markdown("#### BMI Zone Configuration")
-                        st.caption("Define the chart axis range and up to 5 coloured zones, left to right.")
-                        _ba, _bb = st.columns(2)
-                        bmi_axis_min = _ba.number_input("Chart Minimum", value=10.0, key="s_bmi_axis_min")
-                        bmi_axis_max = _bb.number_input("Chart Maximum", value=40.0, key="s_bmi_axis_max")
-                        _COLOR_OPTS   = ["blue", "green", "warning", "alert"]
-                        _zone_defaults = [(18.5, "blue"), (25.0, "green"), (30.0, "warning"), (40.0, "alert"), (0.0, "blue")]
-                        _zone_labels   = ["Underweight", "Healthy", "Overweight", "Obese", "Zone 5 (optional)"]
-                        _bmi_zones = []
-                        for _zi, (_zdef_lim, _zdef_col) in enumerate(_zone_defaults):
-                            _zc1, _zc2, _zc3 = st.columns([1.5, 2, 1.5])
-                            _zc1.markdown(f"**{_zone_labels[_zi]}**")
-                            _z_limit = _zc2.number_input("Upper Limit", value=_zdef_lim, min_value=0.0, key=f"s_bmi_limit_{_zi}", label_visibility="collapsed")
-                            _z_color = _zc3.selectbox("Color", _COLOR_OPTS, index=_COLOR_OPTS.index(_zdef_col), key=f"s_bmi_color_{_zi}", label_visibility="collapsed")
-                            if _z_limit > 0:
-                                _bmi_zones.append({"limit": _z_limit, "color": _z_color})
-                        s_config_dict = {"axis_min": bmi_axis_min, "axis_max": bmi_axis_max, "zones": _bmi_zones}
-                    # text_only: no config needed
+        # --- Session state initialisation ---
+        def _nt_reset():
+            st.session_state['nt_graph_type']  = 'gauge'
+            st.session_state['nt_gauge_style'] = 'curved'
+            st.session_state['nt_axis_min']    = 0.0
+            st.session_state['nt_axis_max']    = 100.0
+            st.session_state['nt_zones']       = [
+                {"from": 0.0,  "to": 50.0, "color": "#FFCCCB", "label": "Low"},
+                {"from": 50.0, "to": 100.0, "color": "#D4EDDA", "label": "Normal"},
+            ]
+            st.session_state['nt_dots'] = [
+                {"test_name": "", "fill_color": "#003366", "stroke_color": "#003366", "label": ""},
+                {"test_name": "", "fill_color": "#FFFFFF",  "stroke_color": "#003366", "label": ""},
+            ]
+            st.session_state['nt_bar_n']  = 2
+            # Clear any indexed widget keys from previous sessions
+            for _k in list(st.session_state.keys()):
+                if _k.startswith(('nt_zone_', 'nt_dot_', 'nt_bt_')):
+                    del st.session_state[_k]
+
+        if 'nt_graph_type' not in st.session_state:
+            _nt_reset()
+
+        # Helper: read current zone values from widget session state
+        def _read_zones(num_zones, axis_min_val):
+            result = []
+            current_from = axis_min_val
+            for _zi in range(num_zones):
+                to_val   = st.session_state.get(f'nt_zone_to_{_zi}',    current_from + 10.0)
+                color    = st.session_state.get(f'nt_zone_color_{_zi}', '#D4EDDA')
+                label    = st.session_state.get(f'nt_zone_label_{_zi}', '')
+                result.append({"from": current_from, "to": to_val, "color": color, "label": label})
+                current_from = to_val
+            return result
+
+        def _read_bar_test_zones(test_idx, n_zones, axis_start=0.0):
+            result = []
+            current_from = axis_start
+            for _zi in range(n_zones):
+                to_val = st.session_state.get(f'nt_bt_{test_idx}_zone_to_{_zi}',    current_from + 5.0)
+                color  = st.session_state.get(f'nt_bt_{test_idx}_zone_color_{_zi}', '#D4EDDA')
+                label  = st.session_state.get(f'nt_bt_{test_idx}_zone_label_{_zi}', '')
+                result.append({"from": current_from, "to": to_val, "color": color, "label": label})
+                current_from = to_val
+            return result
+
+        with st.expander("➕ Add New Test or Panel", expanded=False):
+            from modules.charts import render_gauge, render_dot, render_bars, render_text
+
+            nt_left, nt_right = st.columns([1.1, 1], gap="large")
+
+            with nt_left:
+                # ---- STEP 1: Graph type ----
+                st.markdown("#### Step 1 — Chart Type")
+                nt_graph = st.radio(
+                    "Graph type",
+                    options=["gauge", "dot", "bar", "none"],
+                    format_func=lambda x: {
+                        "gauge": "Dial / Gauge — single value on a curved or straight scale",
+                        "dot":   "Dot on a line — one or two values as markers (e.g. Blood Pressure)",
+                        "bar":   "Horizontal bars — multiple related values side by side",
+                        "none":  "Numbers only — display value as large text, no chart",
+                    }[x],
+                    index=["gauge", "dot", "bar", "none"].index(st.session_state['nt_graph_type']),
+                    key="nt_graph_type_radio",
+                )
+                if nt_graph != st.session_state['nt_graph_type']:
+                    st.session_state['nt_graph_type'] = nt_graph
+                    _nt_reset()
+                    st.session_state['nt_graph_type'] = nt_graph
+                    st.rerun()
 
                 st.divider()
-                if st.form_submit_button("💾 Save", type="primary"):
-                    if s_chart_val == "bp_range":
-                        if s_panel_name.strip() and s_sys_name.strip() and s_dia_name.strip():
-                            crm.connect()
-                            try:
-                                crm.cursor.execute("""
-                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
-                                    VALUES (?, ?, ?, ?)
-                                """, (s_panel_name.strip(), "bp_range", s_trend_val, s_panel_desc.strip() or None))
-                                new_gid = crm.cursor.lastrowid
-                                sys_cfg = json.dumps({"axis_min": s_axis_min, "axis_max": s_axis_max, "safe_min": s_sys_safe_min, "safe_max": s_sys_safe_max})
-                                dia_cfg = json.dumps({"axis_min": s_axis_min, "axis_max": s_axis_max, "safe_min": s_dia_safe_min, "safe_max": s_dia_safe_max})
-                                for (t_name, t_target, t_cfg) in [(s_sys_name.strip(), s_sys_target.strip(), sys_cfg),
-                                                                   (s_dia_name.strip(), s_dia_target.strip(), dia_cfg)]:
-                                    crm.cursor.execute("""
-                                        INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                                    """, (t_name, s_panel_name.strip(), s_bp_unit.strip(), t_target, "bp_range", t_cfg, new_gid))
-                                crm.conn.commit()
-                                st.success(f"Blood Pressure panel '{s_panel_name}' created!")
-                                time.sleep(1)
-                                st.rerun()
-                            except sqlite3.IntegrityError as e:
-                                st.error(f"Error: {e}")
-                            finally:
-                                crm.close()
-                        else:
-                            st.warning("Panel name, Systolic name, and Diastolic name are all required.")
-                    else:
-                        if s_test_name.strip():
-                            crm.connect()
-                            try:
-                                crm.cursor.execute("""
-                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
-                                    VALUES (?, ?, ?, ?)
-                                """, (s_test_name.strip(), s_chart_val, s_trend_val, s_panel_desc.strip() or None))
-                                new_gid = crm.cursor.lastrowid
-                                crm.cursor.execute("""
-                                    INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """, (s_test_name.strip(), s_test_name.strip(), s_unit.strip(), s_target.strip(), s_chart_val, json.dumps(s_config_dict), new_gid))
-                                crm.conn.commit()
-                                st.success(f"Test '{s_test_name}' created successfully!")
-                                time.sleep(1)
-                                st.rerun()
-                            except sqlite3.IntegrityError as e:
-                                st.error(f"Error: {e}")
-                            finally:
-                                crm.close()
-                        else:
-                            st.warning("Test Name is required.")
 
-        with st.expander("➕ Add Multi-Test Panel (Cholesterol, Liver Function, etc.)", expanded=False):
-            st.caption("Creates a multi-metric panel with all component tests defined upfront. More tests can be added later.")
-            _mc1, _mc2 = st.columns(2)
-            num_panel_tests = int(_mc1.number_input("Number of component tests", min_value=2, max_value=8, value=3, key="multi_panel_num_tests"))
-            multi_panel_trend = _mc2.selectbox(
-                "Trend Chart",
-                [
-                    "multi_trend (Multi-line panel trend)",
-                    "line (Standard line trend)",
-                    "none (No trend chart)"
-                ],
-                key="multi_panel_trend_select"
-            )
-            multi_panel_trend_val = multi_panel_trend.split(" ")[0]
+                # ---- STEP 2: Conditional configuration ----
+                st.markdown("#### Step 2 — Configuration")
 
-            with st.form("multi_panel_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                multi_panel_name = col1.text_input("Panel Name (e.g., Cholesterol, Liver Function)")
-                multi_panel_desc = col2.text_input("Description (optional)")
+                if nt_graph == "gauge":
+                    _gc1, _gc2, _gc3, _gc4 = st.columns(4)
+                    nt_gauge_style = _gc1.radio("Style", ["curved", "straight"],
+                                                index=["curved","straight"].index(
+                                                    st.session_state.get('nt_gauge_style','curved')),
+                                                key="nt_gauge_style_radio")
+                    st.session_state['nt_gauge_style'] = nt_gauge_style
 
-                st.markdown("#### Component Tests")
-                st.caption("Define each test that contributes to this panel's multi-bar chart.")
-                _mh = st.columns([2.5, 1, 1.5, 1, 1])
-                for _lbl, _col in zip(["**Test Name**", "**Unit**", "**Target**", "**Safe Min**", "**Safe Max**"], _mh):
-                    _col.markdown(_lbl)
-                mt_slots = []
-                for _i in range(num_panel_tests):
-                    c1, c2, c3, c4, c5 = st.columns([2.5, 1, 1.5, 1, 1])
-                    mt_name    = c1.text_input("Name",     key=f"mt_name_{_i}",    placeholder=f"Test {_i+1}", label_visibility="collapsed")
-                    mt_unit    = c2.text_input("Unit",     key=f"mt_unit_{_i}",    label_visibility="collapsed")
-                    mt_target  = c3.text_input("Target",   key=f"mt_target_{_i}",  label_visibility="collapsed")
-                    mt_smin    = c4.number_input("Min",    key=f"mt_smin_{_i}",    value=0.0, label_visibility="collapsed")
-                    mt_smax    = c5.number_input("Max",    key=f"mt_smax_{_i}",    value=0.0, label_visibility="collapsed")
-                    mt_slots.append((mt_name, mt_unit, mt_target, mt_smin, mt_smax))
+                    nt_ax_min = _gc2.number_input("Axis Min", value=float(st.session_state['nt_axis_min']),
+                                                   key="nt_axis_min_input")
+                    nt_ax_max = _gc4.number_input("Axis Max", value=float(st.session_state['nt_axis_max']),
+                                                   key="nt_axis_max_input")
+                    st.session_state['nt_axis_min'] = nt_ax_min
+                    st.session_state['nt_axis_max'] = nt_ax_max
 
-                st.divider()
-                if st.form_submit_button("💾 Save Panel", type="primary"):
-                    valid_slots = [(n, u, t, mn, mx) for n, u, t, mn, mx in mt_slots if n.strip()]
-                    if multi_panel_name.strip() and len(valid_slots) >= 2:
-                        crm.connect()
-                        try:
-                            crm.cursor.execute("""
-                                INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
-                                VALUES (?, ?, ?, ?)
-                            """, (multi_panel_name.strip(), "multi_bar_panel", multi_panel_trend_val, multi_panel_desc.strip() or None))
-                            new_gid = crm.cursor.lastrowid
-                            for (t_n, t_u, t_t, t_mn, t_mx) in valid_slots:
-                                crm.cursor.execute("""
-                                    INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """, (t_n.strip(), multi_panel_name.strip(), t_u.strip(), t_t.strip(), "multi_bar_panel", json.dumps({"safe_min": t_mn, "safe_max": t_mx}), new_gid))
-                            crm.conn.commit()
-                            st.success(f"Panel '{multi_panel_name}' created with {len(valid_slots)} tests!")
-                            time.sleep(1)
+                    st.markdown("**Zones** (left to right)")
+                    _zh = st.columns([1.5, 1.5, 1.5, 2.5, 0.5])
+                    for _lbl, _c in zip(["From", "To", "Colour", "Label", ""], _zh):
+                        _c.caption(_lbl)
+
+                    zones_list = st.session_state['nt_zones']
+                    for _zi in range(len(zones_list)):
+                        _zc = st.columns([1.5, 1.5, 1.5, 2.5, 0.5])
+                        _zc[0].text(f"{zones_list[_zi]['from']:.1f}")
+                        if f'nt_zone_to_{_zi}' not in st.session_state:
+                            st.session_state[f'nt_zone_to_{_zi}'] = float(zones_list[_zi]['to'])
+                        _zc[1].number_input("To", key=f'nt_zone_to_{_zi}', label_visibility="collapsed")
+                        if f'nt_zone_color_{_zi}' not in st.session_state:
+                            st.session_state[f'nt_zone_color_{_zi}'] = zones_list[_zi].get('color','#D4EDDA')
+                        _zc[2].color_picker("Colour", key=f'nt_zone_color_{_zi}', label_visibility="collapsed")
+                        if f'nt_zone_label_{_zi}' not in st.session_state:
+                            st.session_state[f'nt_zone_label_{_zi}'] = zones_list[_zi].get('label','')
+                        _zc[3].text_input("Label", key=f'nt_zone_label_{_zi}', label_visibility="collapsed")
+                        if _zc[4].button("✕", key=f'nt_zone_rm_{_zi}'):
+                            zones_list.pop(_zi)
+                            for _j in range(_zi, len(zones_list)):
+                                for _s in ['to','color','label']:
+                                    if f'nt_zone_{_s}_{_j}' in st.session_state:
+                                        del st.session_state[f'nt_zone_{_s}_{_j}']
+                            # Re-derive from values
+                            cur = float(st.session_state['nt_axis_min'])
+                            for z in zones_list:
+                                z['from'] = cur
+                                cur = float(z['to'])
                             st.rerun()
-                        except sqlite3.IntegrityError as e:
-                            st.error(f"Error: {e}")
-                        finally:
-                            crm.close()
-                    else:
-                        if not multi_panel_name.strip():
-                            st.warning("Panel Name is required.")
+                        # Keep zone dict in sync with latest widget values for preview
+                        zones_list[_zi]['from'] = (zones_list[_zi-1]['to']
+                                                    if _zi > 0 else float(st.session_state['nt_axis_min']))
+                        zones_list[_zi]['to']    = st.session_state.get(f'nt_zone_to_{_zi}', zones_list[_zi]['to'])
+                        zones_list[_zi]['color'] = st.session_state.get(f'nt_zone_color_{_zi}', zones_list[_zi]['color'])
+                        zones_list[_zi]['label'] = st.session_state.get(f'nt_zone_label_{_zi}', zones_list[_zi]['label'])
+
+                    if st.button("+ Add Zone", key="nt_add_zone_gauge"):
+                        prev_to = float(zones_list[-1]['to']) if zones_list else float(st.session_state['nt_axis_min'])
+                        zones_list.append({"from": prev_to, "to": min(prev_to + 10.0, float(st.session_state['nt_axis_max'])),
+                                           "color": "#D4EDDA", "label": ""})
+                        st.rerun()
+
+                elif nt_graph == "dot":
+                    _dc1, _dc2 = st.columns(2)
+                    nt_ax_min = _dc1.number_input("Axis Min", value=float(st.session_state['nt_axis_min']),
+                                                   key="nt_dot_axis_min")
+                    nt_ax_max = _dc2.number_input("Axis Max", value=float(st.session_state['nt_axis_max']),
+                                                   key="nt_dot_axis_max")
+                    st.session_state['nt_axis_min'] = nt_ax_min
+                    st.session_state['nt_axis_max'] = nt_ax_max
+
+                    st.markdown("**Dots** (1–4)")
+                    _dh = st.columns([2, 2, 1.5, 1.5, 1])
+                    for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh):
+                        _c.caption(_lbl)
+                    dots_list = st.session_state['nt_dots']
+                    for _di in range(len(dots_list)):
+                        _dc = st.columns([2, 2, 1.5, 1.5, 1])
+                        if f'nt_dot_name_{_di}' not in st.session_state:
+                            st.session_state[f'nt_dot_name_{_di}'] = dots_list[_di].get('test_name','')
+                        if f'nt_dot_label_{_di}' not in st.session_state:
+                            st.session_state[f'nt_dot_label_{_di}'] = dots_list[_di].get('label','')
+                        if f'nt_dot_fill_{_di}' not in st.session_state:
+                            st.session_state[f'nt_dot_fill_{_di}'] = dots_list[_di].get('fill_color','#003366')
+                        if f'nt_dot_stroke_{_di}' not in st.session_state:
+                            st.session_state[f'nt_dot_stroke_{_di}'] = dots_list[_di].get('stroke_color','#003366')
+                        _dc[0].text_input("Test Name", key=f'nt_dot_name_{_di}', label_visibility="collapsed")
+                        _dc[1].text_input("Label",     key=f'nt_dot_label_{_di}', label_visibility="collapsed")
+                        _dc[2].color_picker("Fill",    key=f'nt_dot_fill_{_di}', label_visibility="collapsed")
+                        _dc[3].color_picker("Stroke",  key=f'nt_dot_stroke_{_di}', label_visibility="collapsed")
+                        if _dc[4].button("✕", key=f'nt_dot_rm_{_di}') and len(dots_list) > 1:
+                            dots_list.pop(_di)
+                            for _j in range(_di, len(dots_list)):
+                                for _s in ['name','label','fill','stroke']:
+                                    if f'nt_dot_{_s}_{_j}' in st.session_state:
+                                        del st.session_state[f'nt_dot_{_s}_{_j}']
+                            st.rerun()
+                        dots_list[_di]['test_name']    = st.session_state.get(f'nt_dot_name_{_di}', '')
+                        dots_list[_di]['label']        = st.session_state.get(f'nt_dot_label_{_di}', '')
+                        dots_list[_di]['fill_color']   = st.session_state.get(f'nt_dot_fill_{_di}', '#003366')
+                        dots_list[_di]['stroke_color'] = st.session_state.get(f'nt_dot_stroke_{_di}', '#003366')
+                    if len(dots_list) < 4 and st.button("+ Add Dot", key="nt_add_dot"):
+                        dots_list.append({"test_name":"","fill_color":"#003366","stroke_color":"#003366","label":""})
+                        st.rerun()
+
+                    st.markdown("**Zones**")
+                    _zh = st.columns([1.5, 1.5, 1.5, 2.5, 0.5])
+                    for _lbl, _c in zip(["From", "To", "Colour", "Label", ""], _zh):
+                        _c.caption(_lbl)
+                    zones_list = st.session_state['nt_zones']
+                    for _zi in range(len(zones_list)):
+                        _zc = st.columns([1.5, 1.5, 1.5, 2.5, 0.5])
+                        _zc[0].text(f"{zones_list[_zi]['from']:.1f}")
+                        if f'nt_zone_to_{_zi}' not in st.session_state:
+                            st.session_state[f'nt_zone_to_{_zi}'] = float(zones_list[_zi]['to'])
+                        _zc[1].number_input("To", key=f'nt_zone_to_{_zi}', label_visibility="collapsed")
+                        if f'nt_zone_color_{_zi}' not in st.session_state:
+                            st.session_state[f'nt_zone_color_{_zi}'] = zones_list[_zi].get('color','#D4EDDA')
+                        _zc[2].color_picker("Colour", key=f'nt_zone_color_{_zi}', label_visibility="collapsed")
+                        if f'nt_zone_label_{_zi}' not in st.session_state:
+                            st.session_state[f'nt_zone_label_{_zi}'] = zones_list[_zi].get('label','')
+                        _zc[3].text_input("Label", key=f'nt_zone_label_{_zi}', label_visibility="collapsed")
+                        if _zc[4].button("✕", key=f'nt_zone_rm_dot_{_zi}'):
+                            zones_list.pop(_zi)
+                            for _j in range(_zi, len(zones_list)):
+                                for _s in ['to','color','label']:
+                                    if f'nt_zone_{_s}_{_j}' in st.session_state:
+                                        del st.session_state[f'nt_zone_{_s}_{_j}']
+                            cur = float(st.session_state['nt_axis_min'])
+                            for z in zones_list:
+                                z['from'] = cur; cur = float(z['to'])
+                            st.rerun()
+                        zones_list[_zi]['from'] = (zones_list[_zi-1]['to']
+                                                    if _zi > 0 else float(st.session_state['nt_axis_min']))
+                        zones_list[_zi]['to']    = st.session_state.get(f'nt_zone_to_{_zi}', zones_list[_zi]['to'])
+                        zones_list[_zi]['color'] = st.session_state.get(f'nt_zone_color_{_zi}', zones_list[_zi]['color'])
+                        zones_list[_zi]['label'] = st.session_state.get(f'nt_zone_label_{_zi}', zones_list[_zi]['label'])
+                    if st.button("+ Add Zone", key="nt_add_zone_dot"):
+                        prev_to = float(zones_list[-1]['to']) if zones_list else float(st.session_state['nt_axis_min'])
+                        zones_list.append({"from": prev_to, "to": min(prev_to+10.0, float(st.session_state['nt_axis_max'])),
+                                           "color":"#D4EDDA","label":""})
+                        st.rerun()
+
+                elif nt_graph == "bar":
+                    nt_bar_n = int(st.number_input("Number of component tests", min_value=1, max_value=8,
+                                                    value=st.session_state.get('nt_bar_n', 2),
+                                                    key="nt_bar_n_input"))
+                    st.session_state['nt_bar_n'] = nt_bar_n
+
+                    # Ensure bar test slot lists exist
+                    if 'nt_bar_tests' not in st.session_state or len(st.session_state['nt_bar_tests']) != nt_bar_n:
+                        st.session_state['nt_bar_tests'] = [
+                            {"name":"","unit":"","target":"","bar_color":"#003366","bar_alert_color":"#DC3545",
+                             "n_zones": 2}
+                            for _ in range(nt_bar_n)
+                        ]
+
+                    for _bi in range(nt_bar_n):
+                        bt = st.session_state['nt_bar_tests'][_bi]
+                        st.markdown(f"**Test {_bi+1}**")
+                        _bc1, _bc2, _bc3 = st.columns([2,1,1.5])
+                        bt['name']   = _bc1.text_input("Test Name", value=bt['name'],
+                                                        key=f'nt_bt_{_bi}_name', label_visibility="collapsed" if _bi>0 else "visible")
+                        bt['unit']   = _bc2.text_input("Unit",      value=bt['unit'],
+                                                        key=f'nt_bt_{_bi}_unit', label_visibility="collapsed" if _bi>0 else "visible")
+                        bt['target'] = _bc3.text_input("Target",    value=bt['target'],
+                                                        key=f'nt_bt_{_bi}_target', label_visibility="collapsed" if _bi>0 else "visible")
+                        _bcolor1, _bcolor2 = st.columns(2)
+                        bt['bar_color']       = _bcolor1.color_picker("Bar colour",       value=bt['bar_color'],       key=f'nt_bt_{_bi}_barcol')
+                        bt['bar_alert_color'] = _bcolor2.color_picker("Alert bar colour", value=bt['bar_alert_color'], key=f'nt_bt_{_bi}_alertcol')
+
+                        _nz = bt.get('n_zones', 2)
+                        _zh2 = st.columns([1.5, 1.5, 1.5, 2.5, 0.5])
+                        for _lbl, _c in zip(["From", "To", "Colour", "Label", ""], _zh2):
+                            _c.caption(_lbl)
+                        for _zi in range(_nz):
+                            _zcols = st.columns([1.5, 1.5, 1.5, 2.5, 0.5])
+                            _cur_from = st.session_state.get(f'nt_bt_{_bi}_zone_to_{_zi-1}', 0.0) if _zi > 0 else 0.0
+                            _zcols[0].text(f"{_cur_from:.1f}")
+                            if f'nt_bt_{_bi}_zone_to_{_zi}' not in st.session_state:
+                                st.session_state[f'nt_bt_{_bi}_zone_to_{_zi}'] = _cur_from + 5.0
+                            _zcols[1].number_input("To", key=f'nt_bt_{_bi}_zone_to_{_zi}', label_visibility="collapsed")
+                            if f'nt_bt_{_bi}_zone_color_{_zi}' not in st.session_state:
+                                st.session_state[f'nt_bt_{_bi}_zone_color_{_zi}'] = '#D4EDDA'
+                            _zcols[2].color_picker("Colour", key=f'nt_bt_{_bi}_zone_color_{_zi}', label_visibility="collapsed")
+                            if f'nt_bt_{_bi}_zone_label_{_zi}' not in st.session_state:
+                                st.session_state[f'nt_bt_{_bi}_zone_label_{_zi}'] = ''
+                            _zcols[3].text_input("Label", key=f'nt_bt_{_bi}_zone_label_{_zi}', label_visibility="collapsed")
+                            if _zcols[4].button("✕", key=f'nt_bt_{_bi}_zone_rm_{_zi}') and _nz > 1:
+                                bt['n_zones'] = _nz - 1
+                                for _j in range(_zi, _nz-1):
+                                    for _s in ['to','color','label']:
+                                        src_k = f'nt_bt_{_bi}_zone_{_s}_{_j+1}'
+                                        dst_k = f'nt_bt_{_bi}_zone_{_s}_{_j}'
+                                        if src_k in st.session_state:
+                                            st.session_state[dst_k] = st.session_state.pop(src_k)
+                                st.rerun()
+                        if st.button(f"+ Add Zone (Test {_bi+1})", key=f'nt_bt_{_bi}_add_zone'):
+                            bt['n_zones'] = _nz + 1
+                            st.rerun()
+                        st.markdown("---")
+
+                # else: none — nothing more needed
+
+                # ---- STEP 3: Metadata & Save (inside a form) ----
+                st.markdown("#### Step 3 — Metadata")
+                with st.form("new_test_save_form", clear_on_submit=True):
+                    _m1, _m2 = st.columns(2)
+                    nt_panel_name = _m1.text_input("Test / Panel Name")
+                    nt_unit       = _m2.text_input("Unit (e.g., bpm, mmol/L)")
+                    nt_target     = st.text_input("Target Display Text (e.g., '60-100' or '>95')")
+                    nt_desc       = st.text_input("Description (optional)")
+
+                    _save = st.form_submit_button("💾 Save", type="primary")
+
+                    if _save:
+                        if not nt_panel_name.strip():
+                            st.warning("Test / Panel Name is required.")
                         else:
-                            st.warning("At least 2 named tests are required.")
+                            # Assemble chart_config from current session state
+                            _gt = st.session_state['nt_graph_type']
+                            _zones = _read_zones(len(st.session_state['nt_zones']),
+                                                  float(st.session_state['nt_axis_min']))
+                            # Clamp last zone to axis_max
+                            if _zones:
+                                _zones[-1]['to'] = float(st.session_state['nt_axis_max'])
+
+                            if _gt == "none":
+                                _cfg = {"graph_type": "none"}
+                                _trend = "line"
+                                _defs = [(nt_panel_name.strip(), nt_panel_name.strip(),
+                                          nt_unit.strip(), nt_target.strip(), "none",
+                                          json.dumps(_cfg), None)]
+
+                            elif _gt == "gauge":
+                                _cfg = {
+                                    "graph_type": "gauge",
+                                    "gauge_style": st.session_state['nt_gauge_style'],
+                                    "axis_min": float(st.session_state['nt_axis_min']),
+                                    "axis_max": float(st.session_state['nt_axis_max']),
+                                    "zones": _zones
+                                }
+                                _trend = "line"
+                                _defs = [(nt_panel_name.strip(), nt_panel_name.strip(),
+                                          nt_unit.strip(), nt_target.strip(), "gauge",
+                                          json.dumps(_cfg), None)]
+
+                            elif _gt == "dot":
+                                _dots = [
+                                    {
+                                        "test_name":    st.session_state.get(f'nt_dot_name_{_di}', ''),
+                                        "label":        st.session_state.get(f'nt_dot_label_{_di}', ''),
+                                        "fill_color":   st.session_state.get(f'nt_dot_fill_{_di}', '#003366'),
+                                        "stroke_color": st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'),
+                                    }
+                                    for _di in range(len(st.session_state['nt_dots']))
+                                    if st.session_state.get(f'nt_dot_name_{_di}', '').strip()
+                                ]
+                                _primary_cfg = {
+                                    "graph_type": "dot",
+                                    "axis_min": float(st.session_state['nt_axis_min']),
+                                    "axis_max": float(st.session_state['nt_axis_max']),
+                                    "zones": _zones,
+                                    "dots": _dots
+                                }
+                                _secondary_cfg = {
+                                    "graph_type": "dot",
+                                    "dot_role": "secondary",
+                                    "axis_min": float(st.session_state['nt_axis_min']),
+                                    "axis_max": float(st.session_state['nt_axis_max']),
+                                    "zones": _zones
+                                }
+                                _trend = "bp_trend"
+                                _defs = []
+                                for _di, dot in enumerate(_dots):
+                                    _t_name = dot["test_name"].strip()
+                                    _t_cfg  = json.dumps(_primary_cfg if _di == 0 else _secondary_cfg)
+                                    _t_target = nt_target.strip()
+                                    _defs.append((_t_name, nt_panel_name.strip(),
+                                                  nt_unit.strip(), _t_target, "dot", _t_cfg, None))
+
+                            elif _gt == "bar":
+                                _trend = "multi_trend"
+                                _defs = []
+                                for _bi, bt in enumerate(st.session_state['nt_bar_tests']):
+                                    _bt_name = st.session_state.get(f'nt_bt_{_bi}_name', bt['name']).strip()
+                                    if not _bt_name:
+                                        continue
+                                    _bt_zones = _read_bar_test_zones(_bi, bt.get('n_zones', 2))
+                                    _bt_cfg = {
+                                        "graph_type": "bar",
+                                        "bar_color":       st.session_state.get(f'nt_bt_{_bi}_barcol',    '#003366'),
+                                        "bar_alert_color": st.session_state.get(f'nt_bt_{_bi}_alertcol',  '#DC3545'),
+                                        "zones": _bt_zones
+                                    }
+                                    _defs.append((_bt_name, nt_panel_name.strip(),
+                                                  st.session_state.get(f'nt_bt_{_bi}_unit', '').strip(),
+                                                  st.session_state.get(f'nt_bt_{_bi}_target', '').strip(),
+                                                  "bar", json.dumps(_bt_cfg), None))
+
+                            # Write to DB
+                            if not _defs:
+                                st.warning("No valid test definitions to save.")
+                            else:
+                                crm.connect()
+                                try:
+                                    crm.cursor.execute("""
+                                        INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
+                                        VALUES (?, ?, ?, ?)
+                                    """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None))
+                                    new_gid = crm.cursor.lastrowid
+                                    for (t_n, t_grp, t_u, t_t, t_ct, t_cfg, _) in _defs:
+                                        crm.cursor.execute("""
+                                            INSERT INTO test_definitions
+                                            (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                        """, (t_n, t_grp, t_u, t_t, t_ct, t_cfg, new_gid))
+                                    crm.conn.commit()
+                                    st.success(f"'{nt_panel_name.strip()}' saved!")
+                                    _nt_reset()
+                                    time.sleep(0.8)
+                                    st.rerun()
+                                except sqlite3.IntegrityError as e:
+                                    st.error(f"Error: {e}")
+                                finally:
+                                    crm.close()
+
+            # ---- RIGHT COLUMN: Live Preview ----
+            with nt_right:
+                st.markdown("#### Live Preview")
+                try:
+                    _gt_prev = st.session_state['nt_graph_type']
+                    _ax_min  = float(st.session_state.get('nt_axis_min', 0))
+                    _ax_max  = float(st.session_state.get('nt_axis_max', 100))
+                    _zones_prev = _read_zones(len(st.session_state.get('nt_zones', [])), _ax_min)
+                    if _zones_prev:
+                        _zones_prev[-1]['to'] = _ax_max
+
+                    if _gt_prev == "none":
+                        _mock_val = 72.5
+                        _prev_img = render_text(_mock_val, "unit")
+                        if _prev_img:
+                            st.image(_prev_img, use_container_width=True)
+
+                    elif _gt_prev == "gauge":
+                        _mock_val = _ax_min + (_ax_max - _ax_min) * 0.55
+                        _prev_cfg = {
+                            "graph_type": "gauge",
+                            "gauge_style": st.session_state.get('nt_gauge_style','curved'),
+                            "axis_min": _ax_min, "axis_max": _ax_max,
+                            "zones": _zones_prev
+                        }
+                        _prev_img = render_gauge(_mock_val, _prev_cfg)
+                        if _prev_img:
+                            st.image(_prev_img, use_container_width=True)
+
+                    elif _gt_prev == "dot":
+                        _dots_prev_list = st.session_state.get('nt_dots', [])
+                        _mock_dots = {
+                            (d.get('test_name') or f"Test{i+1}"): _ax_min + (_ax_max-_ax_min)*(0.4+i*0.2)
+                            for i, d in enumerate(_dots_prev_list) if i < 2
+                        }
+                        _dot_cfg = [
+                            {
+                                "test_name":    d.get('test_name') or f"Test{i+1}",
+                                "fill_color":   st.session_state.get(f'nt_dot_fill_{i}', '#003366'),
+                                "stroke_color": st.session_state.get(f'nt_dot_stroke_{i}', '#003366'),
+                                "label":        st.session_state.get(f'nt_dot_label_{i}', f"T{i+1}"),
+                            }
+                            for i, d in enumerate(_dots_prev_list) if i < 2
+                        ]
+                        _prev_cfg = {
+                            "graph_type": "dot",
+                            "axis_min": _ax_min, "axis_max": _ax_max,
+                            "zones": _zones_prev,
+                            "dots": _dot_cfg
+                        }
+                        _prev_img = render_dot(_mock_dots, _prev_cfg)
+                        if _prev_img:
+                            st.image(_prev_img, use_container_width=True)
+
+                    elif _gt_prev == "bar":
+                        _bar_tests_prev = st.session_state.get('nt_bar_tests', [])
+                        _bar_items_prev = []
+                        for _bi, bt in enumerate(_bar_tests_prev):
+                            _bt_zones = _read_bar_test_zones(_bi, bt.get('n_zones', 2))
+                            _mock_v = sum(z['to'] for z in _bt_zones) / len(_bt_zones) if _bt_zones else 5.0
+                            _bar_items_prev.append({
+                                "name":   st.session_state.get(f'nt_bt_{_bi}_name', f"Test {_bi+1}") or f"Test {_bi+1}",
+                                "value":  _mock_v,
+                                "unit":   st.session_state.get(f'nt_bt_{_bi}_unit', ''),
+                                "target": st.session_state.get(f'nt_bt_{_bi}_target', ''),
+                                "config": {
+                                    "graph_type": "bar",
+                                    "bar_color":       st.session_state.get(f'nt_bt_{_bi}_barcol',   '#003366'),
+                                    "bar_alert_color": st.session_state.get(f'nt_bt_{_bi}_alertcol', '#DC3545'),
+                                    "zones": _bt_zones
+                                }
+                            })
+                        _prev_img = render_bars(_bar_items_prev)
+                        if _prev_img:
+                            st.image(_prev_img, use_container_width=True)
+
+                except Exception as _prev_err:
+                    st.caption(f"Preview unavailable: {_prev_err}")
 
         st.divider()
 
@@ -1131,38 +1432,53 @@ elif st.session_state.page == "Admin Console":
             else:
                 st.caption("No active test definitions found.")
 
-        _multi_groups = [row for row in all_test_groups if row['chart_type'] == 'multi_bar_panel']
-        with st.expander(f"➕ Add Test to Existing Multi-Test Panel ({len(_multi_groups)} available)", expanded=False):
-            st.caption("Adds an extra test to an existing multi-bar panel. Standalone panels (gauge, BMI, text, BP) cannot be extended here.")
-            if not _multi_groups:
-                st.info("No multi-test panels exist yet. Use 'Add Multi-Test Panel' above to create one first.")
+        _bar_groups = [row for row in all_test_groups if row['chart_type'] == 'bar']
+        with st.expander(f"➕ Add Test to Existing Bar Panel ({len(_bar_groups)} available)", expanded=False):
+            st.caption("Adds an extra test to an existing horizontal bar panel.")
+            if not _bar_groups:
+                st.info("No bar panels exist yet. Use 'Add New Test or Panel' above to create one first.")
             else:
-                atp_panel = st.selectbox("Select Panel", options=[row['group_name'] for row in _multi_groups], key="add_to_panel_select")
-                atp_inherited = next((row for row in _multi_groups if row['group_name'] == atp_panel), None)
+                atp_panel = st.selectbox("Select Panel", options=[row['group_name'] for row in _bar_groups], key="add_to_panel_select")
+                atp_inherited = next((row for row in _bar_groups if row['group_name'] == atp_panel), None)
                 atp_group_id  = atp_inherited['group_id']         if atp_inherited else None
                 atp_trend     = atp_inherited['trend_chart_type'] if atp_inherited else 'multi_trend'
-                st.info(f"Chart style: **multi_bar_panel** | Trend chart: **{atp_trend}** (inherited from panel — not editable here)")
+                st.info(f"Chart style: **bar** | Trend chart: **{atp_trend}** (inherited from panel)")
 
                 with st.form("add_to_panel_form", clear_on_submit=True):
                     col1, col2 = st.columns(2)
                     atp_name   = col1.text_input("Test Name (e.g., HDL Cholesterol)")
                     atp_unit   = col2.text_input("Unit (e.g., mmol/L)")
                     atp_target = st.text_input("Target Display Text (e.g., '>1.0')")
-                    st.markdown("#### Healthy Range")
-                    st.caption("Bar panels auto-scale their outer edges, so they only need the healthy targets.")
-                    c1, c2 = st.columns(2)
-                    atp_smin = c1.number_input("Safe Minimum", value=0.0)
-                    atp_smax = c2.number_input("Safe Maximum", value=0.0)
+                    atp_barcol   = st.color_picker("Bar colour",       value="#003366", key="atp_barcol")
+                    atp_alertcol = st.color_picker("Alert bar colour", value="#DC3545", key="atp_alertcol")
+                    st.markdown("#### Zones")
+                    st.caption("Define colour zones for this test's bar background (left to right).")
+                    _atp_zones_raw = [
+                        {"from": 0.0, "to": 5.0, "color": "#D4EDDA", "label": "Normal"},
+                        {"from": 5.0, "to": 15.0, "color": "#FFCCCB", "label": "High"}
+                    ]
+                    atp_zones_text = st.text_area("Zones JSON", value=json.dumps(_atp_zones_raw, indent=2), height=140)
                     st.divider()
                     if st.form_submit_button("💾 Save Test", type="primary"):
                         if atp_name.strip():
+                            try:
+                                _parsed_zones = json.loads(atp_zones_text)
+                            except json.JSONDecodeError:
+                                st.error("Invalid zones JSON — check format.")
+                                st.stop()
                             crm.connect()
                             try:
+                                _atp_cfg = json.dumps({
+                                    "graph_type": "bar",
+                                    "bar_color": atp_barcol,
+                                    "bar_alert_color": atp_alertcol,
+                                    "zones": _parsed_zones
+                                })
                                 crm.cursor.execute("""
                                     INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
                                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """, (atp_name.strip(), atp_panel, atp_unit.strip(), atp_target.strip(), "multi_bar_panel",
-                                      json.dumps({"safe_min": atp_smin, "safe_max": atp_smax}), atp_group_id))
+                                """, (atp_name.strip(), atp_panel, atp_unit.strip(), atp_target.strip(), "bar",
+                                      _atp_cfg, atp_group_id))
                                 crm.conn.commit()
                                 st.success(f"Test '{atp_name}' added to panel '{atp_panel}'!")
                                 time.sleep(1)
