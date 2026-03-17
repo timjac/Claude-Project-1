@@ -65,9 +65,14 @@ Tests follow a two-stage lifecycle:
 - **Pending** — test has been ordered/taken but no result yet
 - **Complete** — result has been received and logged
 
-Each result records who took the test, when, who logged the result, and when. Results are linked to test definitions (`test_definitions`) which specify the unit, safe target range, chart type, and chart configuration (stored as JSON).
+Each result records who took the test, when, who logged the result, and when. Results are linked to test definitions (`test_definitions`) which specify the unit, safe target range, and chart configuration (stored as JSON).
 
-**Supported test types and their chart visualisations:**
+#### Test Groups
+Tests are organised into **panels** via the `test_groups` table. A panel (e.g., "Cholesterol", "Blood Pressure") is a first-class entity with its own `chart_type` and optional `description`. Individual tests in `test_definitions` link to their panel via a `group_id` FK. `chart_type` lives at the group level — all tests in a panel share the same chart style, enforced by the admin UI.
+
+`test_definitions` retains a legacy `test_group` text column and `chart_type` column for backward compatibility. All queries use `COALESCE(tg.chart_type, td.chart_type, 'gauge')` so results rows with no linked definition still render safely.
+
+**Supported chart types and their visualisations:**
 
 | Chart Type | Tests | Visual |
 |---|---|---|
@@ -102,6 +107,10 @@ Report generation is logged to `report_log` and `report_contents` for audit purp
 ### Staff & Admin
 Admin users can manage staff accounts (add/remove users, set roles). System-wide settings such as the report footer text and PDF theme are stored in the `system_settings` table.
 
+The **Test Dictionary** tab in the Admin Console is split into two sections:
+- **Test Panels** — manage group-level entities (`test_groups`): set the panel name, chart style, and description. Chart style is defined here and applies to all tests in the panel.
+- **Individual Tests** — add tests to an existing panel. The chart style is shown read-only (inherited from the panel) so it cannot be misconfigured per-row.
+
 ---
 
 ## Database Tables
@@ -114,7 +123,8 @@ Admin users can manage staff accounts (add/remove users, set roles). System-wide
 | `encounters` | Clinical encounters (date, type, provider) |
 | `encounter_notes` | Free-text notes linked to encounters |
 | `test_results` | Test results with two-stage lifecycle (Pending/Complete) |
-| `test_definitions` | Lookup table for test metadata and chart configuration |
+| `test_groups` | First-class panel entity — holds `chart_type` and `description` at the group level |
+| `test_definitions` | Individual test metadata (unit, target, chart config JSON); linked to `test_groups` via `group_id` |
 | `appointments` | Scheduled appointments per patient |
 | `report_log` | Header record of each generated PDF report |
 | `report_contents` | Line items (tests and notes) for each report |
@@ -126,3 +136,10 @@ Admin users can manage staff accounts (add/remove users, set roles). System-wide
 ## Dummy Data
 
 `dummy_data.py` seeds the database with 103 fantasy-named patients (from Lord of the Rings, Harry Potter, Game of Thrones, and The Witcher). Patient 103 — Bilbo Baggins — is a curated "golden record" with a longitudinal health journey across four visits, designed to produce rich trend charts in PDF reports.
+
+The script calls `initialize_database()` before inserting any data, so it is safe to run against a fresh (or missing) database. Run it from inside the `Clinic_CRM/` directory so the relative `family_clinic.db` path resolves correctly:
+
+```
+cd Clinic_CRM
+python dummy_data.py
+```
