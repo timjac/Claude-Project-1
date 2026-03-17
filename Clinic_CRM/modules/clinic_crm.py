@@ -1,0 +1,551 @@
+import sqlite3
+import hashlib
+import datetime
+import random
+import json
+
+class ClinicCRM:
+    def __init__(self, db_name="family_clinic.db"):
+        self.db_name = db_name
+        self.conn = None
+        self.cursor = None
+
+    def connect(self):
+        self.conn = sqlite3.connect(self.db_name)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
+
+    def close(self):
+        if self.conn:
+            self.conn.commit()
+            self.conn.close()
+
+    # ==========================================
+    # 1. SETUP & INITIALIZATION
+    # ==========================================
+    def initialize_database(self):
+        self.connect()
+        print("--- Initializing Database Structure ---")
+        
+        # --- Table: Field Definitions ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS field_definitions (
+                field_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                field_name TEXT UNIQUE NOT NULL,
+                field_display_name TEXT NOT NULL,
+                field_group TEXT,
+                data_type TEXT DEFAULT 'text',
+                ordinal_position INTEGER
+            );
+        """)
+
+        # --- Table: Patient History (The EAV Table) ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS patient_history (
+                history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                field_name TEXT NOT NULL,
+                field_value TEXT,
+                change_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                change_reason TEXT,
+                changed_by TEXT,
+                marked_for_deletion_by TEXT, 
+                FOREIGN KEY (field_name) REFERENCES field_definitions(field_name)
+            );
+        """)
+
+        # --- Table: Archive (The Safety Net) ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS patient_history_archive (
+                archive_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_history_id INTEGER,
+                patient_id INTEGER,
+                field_name TEXT,
+                field_value TEXT,
+                original_change_date DATETIME,
+                archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_by TEXT,
+                deletion_reason TEXT
+            );
+        """)
+
+        # --- TRIGGER: The Safety Valve ---
+        self.cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_archive_history
+            BEFORE DELETE ON patient_history
+            BEGIN
+                INSERT INTO patient_history_archive (
+                    original_history_id, patient_id, field_name, field_value, 
+                    original_change_date, deleted_by
+                )
+                VALUES (
+                    OLD.history_id, OLD.patient_id, OLD.field_name, OLD.field_value, 
+                    OLD.change_date, OLD.marked_for_deletion_by
+                );
+            END;
+        """)
+
+        # --- Table: Encounters (Replaced Visits) ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS encounters (
+                encounter_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER,
+                encounter_date DATETIME,
+                encounter_type TEXT, -- e.g., 'In-Person', 'Telephone', 'Admin'
+                created_by TEXT 
+            );
+        """)
+
+        # --- Table: Encounter Notes (Replaced Visit Notes) ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS encounter_notes (
+                note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                encounter_id INTEGER,
+                note_text TEXT,
+                created_by TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (encounter_id) REFERENCES encounters(encounter_id)
+            );
+        """)
+
+        # --- Table: Test Results (NEW MULTI-STAGE SCHEMA) ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_results (
+                result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                encounter_id INTEGER,
+                test_name TEXT,
+                
+                -- "Taken" Lifecycle
+                test_taken_on DATETIME,
+                test_taken_by TEXT,
+                is_taken_by_override INTEGER DEFAULT 0,
+                test_taken_note TEXT,
+                
+                -- Result Data
+                test_value TEXT,
+                
+                -- "Resulted" Lifecycle
+                result_received_on DATETIME,
+                result_logged_by TEXT,
+                is_result_logged_by_override INTEGER DEFAULT 0,
+                result_note TEXT,
+                
+                -- State Tracking
+                status TEXT DEFAULT 'Pending', 
+                
+                FOREIGN KEY (encounter_id) REFERENCES encounters(encounter_id)
+            );
+        """)
+
+        # --- Table: Test Definitions ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_definitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_name TEXT UNIQUE NOT NULL,
+                test_group TEXT NOT NULL,      
+                unit TEXT,
+                default_target TEXT,
+                chart_type TEXT DEFAULT 'gauge',
+                description TEXT,
+                chart_config TEXT,             
+                is_active INTEGER DEFAULT 1 -- NEW: Soft delete flag for Admin
+            );
+        """)
+
+        # --- Table: Report Log ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS report_log (
+                report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT DEFAULT 'Admin',
+                report_start_date TEXT,
+                report_end_date TEXT,
+                practitioner_statement TEXT, -- NEW
+                next_steps TEXT              -- NEW
+            );
+        """)
+
+        # --- Table: Report Contents ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS report_contents (
+                content_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id INTEGER,
+                test_name TEXT,
+                note_included INTEGER, 
+                note_text TEXT,        
+                is_override INTEGER,   
+                FOREIGN KEY(report_id) REFERENCES report_log(report_id)
+            );
+        """)
+
+        # --- Table: Staff ---
+        self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS staff (
+                staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT DEFAULT 'Staff'
+            );
+        """)
+
+        # --- Table: Appointments ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS appointments (
+                appointment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER,
+                appointment_date DATE,
+                appointment_time TEXT,
+                provider TEXT,
+                reason TEXT,
+                status TEXT DEFAULT 'Scheduled',
+                created_by TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # --- Populate Field Definitions ---
+        fields = [
+            ("first_name", "First Name", "personal", "text", 1),
+            ("middle_names", "Middle Names", "personal", "text", 2),
+            ("last_name", "Last Name", "personal", "text", 3),
+            ("preferred_name", "Preferred Name", "personal", "text", 4),
+            ("date_of_birth", "Date of Birth", "personal", "date", 5),
+            ("address_line_1", "Address Line 1", "address", "text", 6),
+            ("address_line_2", "Address Line 2", "address", "text", 7),
+            ("address_town", "Town/City", "address", "text", 8),
+            ("address_postcode", "Postcode", "address", "text", 9),
+            ("phone", "Phone Number", "contact", "text", 10),
+            ("email", "Email Address", "contact", "email", 11),
+            ("blood_group", "Blood Group", "clinical", "text", 12)
+        ]
+        
+        self.cursor.executemany("""
+            INSERT OR IGNORE INTO field_definitions 
+            (field_name, field_display_name, field_group, data_type, ordinal_position)
+            VALUES (?, ?, ?, ?, ?)
+        """, fields)
+
+        # --- Populate Test Definitions ---
+        definitions = [
+            # Changed Weight to text_only
+            ("Weight", "Weight", "kg", "N/A", "text_only", "Body mass", json.dumps({})),
+            ("Height", "Height", "cm", "N/A", "text_only", "Stature", json.dumps({})), 
+            ("BMI", "BMI", "kg/m2", "18.5-24.9", "bmi_bullet", "Body Mass Index", json.dumps({
+                 "axis_min": 10, "axis_max": 40,
+                 "zones": [{"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"}, 
+                           {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}]
+            })),
+            ("Systolic", "Blood Pressure", "mmHg", "90-120", "bp_range", "Systolic Pressure", json.dumps({"axis_min": 40, "axis_max": 200, "safe_min": 90, "safe_max": 120})),
+            ("Diastolic", "Blood Pressure", "mmHg", "60-80", "bp_range", "Diastolic Pressure", json.dumps({"axis_min": 40, "axis_max": 200, "safe_min": 60, "safe_max": 80})),
+            ("Resting Heart Rate", "Resting Heart Rate", "bpm", "60-100", "gauge", "Pulse rate", json.dumps({"axis_min": 30, "axis_max": 150, "safe_min": 60, "safe_max": 100})),
+            ("Total Cholesterol", "Cholesterol", "mmol/L", "<5.0", "multi_bar_panel", "Lipid metric", json.dumps({"safe_min": 0.0, "safe_max": 5.0})),
+            ("HDL Cholesterol", "Cholesterol", "mmol/L", ">1.0", "multi_bar_panel", "Good cholesterol", json.dumps({"safe_min": 1.0, "safe_max": 10.0})),
+            ("LDL Cholesterol", "Cholesterol", "mmol/L", "<3.0", "multi_bar_panel", "Bad cholesterol", json.dumps({"safe_min": 0.0, "safe_max": 3.0})),
+            
+            # Fixed Blood Glucose scaling (0 to 15 axis, 4.0 to 5.9 safe zone)
+            ("Blood Glucose (Fasting)", "Blood Glucose (Fasting)", "mmol/L", "4.0-5.9", "gauge", "Sugar level", json.dumps({"axis_min": 0.0, "axis_max": 15.0, "safe_min": 4.0, "safe_max": 5.9})),
+            
+            # Fixed O2 Saturation scaling (80 to 100 axis, 95 to 100 safe zone)
+            ("O2 Saturation", "O2 Saturation", "%", ">95", "gauge", "Oxygen levels", json.dumps({"axis_min": 80.0, "axis_max": 100.0, "safe_min": 95.0, "safe_max": 100.0})),
+            
+            # Fixed Temp scaling (34 to 40 axis, 36.5 to 37.5 safe zone)
+            ("Temperature", "Temperature", "C", "36.5-37.5", "gauge", "Body temp", json.dumps({"axis_min": 34.0, "axis_max": 40.0, "safe_min": 36.5, "safe_max": 37.5}))
+        ]
+
+        self.cursor.executemany("""
+            INSERT OR IGNORE INTO test_definitions 
+            (test_name, test_group, unit, default_target, chart_type, description, chart_config)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, definitions)
+
+        # --- Populate Staff with Admin ---
+        default_user = "admin"
+        default_pass = "admin123"
+        hashed_pass = hashlib.sha256(default_pass.encode()).hexdigest()
+
+        self.cursor.execute("INSERT OR IGNORE INTO staff (username, password_hash, role) VALUES (?, ?, ?)", 
+                  (default_user, hashed_pass, "Admin"))
+        
+        # --- Table: System Settings ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT
+            );
+        """)
+        
+        self.cursor.execute("""
+            INSERT OR IGNORE INTO system_settings (setting_key, setting_value)
+            VALUES ('report_footer', 'Jack''s Family Clinic | 123 Health Way, Medical District | Phone: (555) 019-2837')
+        """)
+
+        print("--- Database Initialized Successfully ---")
+        self.close()
+
+    # ==========================================
+    # 2. CORE FUNCTIONS
+    # ==========================================
+
+    def _get_next_patient_id(self):
+        self.cursor.execute("SELECT MAX(patient_id) FROM patient_history")
+        val = self.cursor.fetchone()[0]
+        return 1 if val is None else val + 1
+
+    def log_patient_change(self, patient_id, field_name, field_value, changed_by, reason="Update"):
+        self.connect()
+        self.cursor.execute("SELECT 1 FROM field_definitions WHERE field_name = ?", (field_name,))
+        if not self.cursor.fetchone():
+            print(f"Error: Field '{field_name}' is not defined in Field_Definitions.")
+            return None
+
+        if patient_id is None:
+            patient_id = self._get_next_patient_id()
+
+        self.cursor.execute("""
+            INSERT INTO patient_history (patient_id, field_name, field_value, changed_by, change_reason)
+            VALUES (?, ?, ?, ?, ?)
+        """, (patient_id, field_name, str(field_value), changed_by, reason))
+        
+        self.close()
+        return patient_id
+    
+    def _get_or_create_todays_encounter(self, patient_id, current_user, encounter_type="Clinical Encounter"):
+        """Finds an encounter for today, or creates one if it doesn't exist."""
+        self.connect()
+        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        self.cursor.execute("""
+            SELECT encounter_id FROM encounters 
+            WHERE patient_id = ? AND DATE(encounter_date) = ? AND encounter_type = ?
+        """, (patient_id, today_str, encounter_type))
+
+        record = self.cursor.fetchone()
+
+        if record:
+            encounter_id = record['encounter_id']
+        else:
+            self.cursor.execute("""
+                INSERT INTO encounters (patient_id, encounter_date, encounter_type, created_by)
+                VALUES (?, ?, ?, ?)
+            """, (patient_id, today_str, encounter_type, current_user))
+            encounter_id = self.cursor.lastrowid
+
+        self.conn.commit()  
+        self.close()
+        return encounter_id
+
+    def clear_patient_field(self, patient_id, field_name, changed_by):
+        return self.log_patient_change(patient_id, field_name, "", changed_by, "Field Cleared")
+
+    def delete_specific_field_history(self, history_id, user):
+        self.connect()
+        self.cursor.execute("""
+            UPDATE patient_history SET marked_for_deletion_by = ? WHERE history_id = ?
+        """, (user, history_id))
+        self.cursor.execute("DELETE FROM patient_history WHERE history_id = ?", (history_id,))
+        self.close()
+
+    def delete_patient_history_completely(self, patient_id, user):
+        self.connect()
+        self.cursor.execute("""
+            UPDATE patient_history SET marked_for_deletion_by = ? WHERE patient_id = ?
+        """, (user, patient_id))
+        self.cursor.execute("DELETE FROM patient_history WHERE patient_id = ?", (patient_id,))
+        self.close()
+    
+    def add_clinical_note(self, patient_id, note_text, current_user, encounter_type="Clinical Encounter"):
+        encounter_id = self._get_or_create_todays_encounter(patient_id, current_user, encounter_type)
+        self.connect()
+        self.cursor.execute("""
+            INSERT INTO encounter_notes (encounter_id, note_text, created_by)
+            VALUES (?, ?, ?)
+        """, (encounter_id, note_text, current_user))
+        self.conn.commit()
+        self.close()
+        return True
+
+    def add_test_result(self, patient_id, test_name, test_taken_on, test_taken_by, 
+                        is_taken_by_override, test_taken_note, test_value, 
+                        result_received_on, result_logged_by, is_result_logged_by_override, 
+                        result_note, current_user, encounter_type="Clinical Encounter"):
+        """Creates a new test record. Determines Pending vs Complete based on test_value."""
+        
+        encounter_id = self._get_or_create_todays_encounter(patient_id, current_user, encounter_type)
+        
+        # Determine Status dynamically
+        status = "Complete" if test_value and str(test_value).strip() != "" else "Pending"
+
+        self.connect()
+        self.cursor.execute("""
+            INSERT INTO test_results (
+                encounter_id, test_name, test_taken_on, test_taken_by, is_taken_by_override,
+                test_taken_note, test_value, result_received_on, result_logged_by,
+                is_result_logged_by_override, result_note, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            encounter_id, test_name, str(test_taken_on), test_taken_by, int(is_taken_by_override),
+            test_taken_note, str(test_value) if test_value else None, 
+            str(result_received_on) if result_received_on else None, 
+            result_logged_by, int(is_result_logged_by_override), result_note, status
+        ))
+        
+        self.conn.commit()
+        self.close()
+        return True
+
+    def update_test_result(self, result_id, test_value, result_received_on, 
+                           result_logged_by, is_result_logged_by_override, result_note):
+        """Updates an existing test. Used to move Pending tests to Complete."""
+        
+        status = "Complete" if test_value and str(test_value).strip() != "" else "Pending"
+        
+        self.connect()
+        self.cursor.execute("""
+            UPDATE test_results 
+            SET test_value = ?, 
+                result_received_on = ?, 
+                result_logged_by = ?, 
+                is_result_logged_by_override = ?, 
+                result_note = ?, 
+                status = ?
+            WHERE result_id = ?
+        """, (
+            str(test_value), str(result_received_on), result_logged_by, 
+            int(is_result_logged_by_override), result_note, status, result_id
+        ))
+        
+        self.conn.commit()
+        self.close()
+        return True
+
+    def add_staff_member(self, username, password, role="Staff"):
+        self.connect()
+        hashed_pass = hashlib.sha256(password.encode()).hexdigest()
+        try:
+            self.cursor.execute("INSERT INTO staff (username, password_hash, role) VALUES (?, ?, ?)", 
+                                (username, hashed_pass, role))
+            self.conn.commit()
+            success = True
+        except sqlite3.IntegrityError:
+            success = False
+        self.close()
+        return success
+    
+    def add_appointment(self, patient_id, appt_date, appt_time, provider, reason, created_by, status="Scheduled"):
+        self.connect()
+        self.cursor.execute("""
+            INSERT INTO appointments (patient_id, appointment_date, appointment_time, provider, reason, status, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (patient_id, str(appt_date), str(appt_time), provider, reason, status, created_by))
+        self.conn.commit()
+        self.close()
+        return True
+
+    def update_appointment_status(self, appointment_id, status):
+        self.connect()
+        self.cursor.execute("UPDATE appointments SET status = ? WHERE appointment_id = ?", (status, appointment_id))
+        self.conn.commit()
+        self.close()
+        return True
+    
+    def auto_resolve_past_appointments(self, patient_id):
+        self.connect()
+        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        self.cursor.execute("""
+            SELECT appointment_id, appointment_date 
+            FROM appointments 
+            WHERE patient_id = ? AND appointment_date < ? AND status = 'Scheduled'
+        """, (patient_id, today_str))
+        
+        past_appts = self.cursor.fetchall()
+        
+        for appt in past_appts:
+            appt_id = appt['appointment_id']
+            appt_date = appt['appointment_date']
+            
+            # Point to 'encounters' now
+            self.cursor.execute("""
+                SELECT 1 FROM encounters 
+                WHERE patient_id = ? AND DATE(encounter_date) = ?
+            """, (patient_id, appt_date))
+            
+            has_encounter = self.cursor.fetchone()
+            new_status = 'Completed' if has_encounter else 'No Show'
+            
+            self.cursor.execute("UPDATE appointments SET status = ? WHERE appointment_id = ?", (new_status, appt_id))
+            
+        self.conn.commit()
+        self.close()
+    
+    def get_setting(self, key, default_value=""):
+        self.connect()
+        self.cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key = ?", (key,))
+        row = self.cursor.fetchone()
+        self.close()
+        return row['setting_value'] if row else default_value
+
+    def update_setting(self, key, value):
+        self.connect()
+        self.cursor.execute("REPLACE INTO system_settings (setting_key, setting_value) VALUES (?, ?)", (key, value))
+        self.conn.commit()
+        self.close()
+        return True
+
+    # ==========================================
+    # 3. DYNAMIC REPORTING (The View)
+    # ==========================================
+    
+    def get_patient_directory(self):
+        self.connect()
+        self.cursor.execute("SELECT field_name FROM field_definitions ORDER BY ordinal_position")
+        defined_fields = [row['field_name'] for row in self.cursor.fetchall()]
+
+        sql = """
+            SELECT ph.patient_id, ph.field_name, ph.field_value
+            FROM patient_history ph
+            INNER JOIN (
+                SELECT patient_id, field_name, MAX(change_date) as latest_date
+                FROM patient_history
+                GROUP BY patient_id, field_name
+            ) latest ON ph.patient_id = latest.patient_id 
+                    AND ph.field_name = latest.field_name 
+                    AND ph.change_date = latest.latest_date
+        """
+        self.cursor.execute(sql)
+        rows = self.cursor.fetchall()
+
+        patients = {}
+        for row in rows:
+            pid = row['patient_id']
+            if pid not in patients:
+                patients[pid] = {field: "" for field in defined_fields}
+                patients[pid]['patient_id'] = pid
+            patients[pid][row['field_name']] = row['field_value']
+
+        self.close()
+        return list(patients.values())
+
+    # ==========================================
+    # 4. DUMMY DATA GENERATOR
+    # ==========================================
+    
+    def populate_dummy_data(self):
+        print("--- Generating Dummy Data ---")
+        dummy_patients = [
+            {"first_name": "John", "last_name": "Doe", "date_of_birth": "1980-05-12", "phone": "07700900123", "blood_group": "O+"},
+            {"first_name": "Sarah", "last_name": "Smith", "middle_names": "Jane", "address_town": "London", "email": "sarah.s@example.com"},
+            {"first_name": "Robert", "last_name": "Jones", "address_line_1": "123 High St", "blood_group": "A-"}
+        ]
+
+        for i, p_data in enumerate(dummy_patients):
+            new_pid = i + 1 
+            for field, value in p_data.items():
+                self.log_patient_change(new_pid, field, value, "System_Init", "Initial Import")
+        
+        print("Dummy data generation complete.")
+
+if __name__ == "__main__":
+    crm = ClinicCRM()
+    crm.initialize_database()

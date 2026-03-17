@@ -11,3 +11,18 @@ ehthumbs.db
 .idea/
 *.swp
 *.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+Clinic_CRM/venv/
+Clinic_CRM/.venv/
+
+# Streamlit config
+Clinic_CRM/.streamlit/
+
+# Database (contains patient data)
+Clinic_CRM/*.db
