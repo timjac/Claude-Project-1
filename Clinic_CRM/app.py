@@ -1046,8 +1046,7 @@ elif st.session_state.page == "Admin Console":
         def _nt_reset():
             st.session_state['nt_graph_type'] = 'gauge'
             for _k in list(st.session_state.keys()):
-                if any(_k.startswith(_p) for _p in
-                       ['nt_gauge', 'nt_n_', 'nt_axis', 'nt_zone_', 'nt_dot_', 'nt_bt', 'nt_bar_']):
+                if _k.startswith('nt_') and _k != 'nt_graph_type':
                     del st.session_state[_k]
             _zinit('nt', {
                 "graph_type": "gauge", "gauge_style": "curved",
