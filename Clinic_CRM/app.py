@@ -932,11 +932,38 @@ elif st.session_state.page == "Admin Console":
         df_active   = df_td[df_td['Active'] == 1] if not df_td.empty else df_td
         df_archived = df_td[df_td['Active'] == 0] if not df_td.empty else df_td
 
-        _hide_cols = {"ID": None, "Desc": None, "JSON": None, "Active": None}
+        _COL_W = [3, 2, 1, 1.5, 1.2]
 
         with st.expander(f"📋 View Active Tests ({len(df_active)})", expanded=False):
+            # Confirmation prompt for a pending archive action
+            _pending_archive = st.session_state.get('pending_archive')
+            if _pending_archive and _pending_archive in df_active['Test Name'].values:
+                st.warning(f"Archive **{_pending_archive}**? It will be hidden from patient test ordering.")
+                _ca, _cb = st.columns(2)
+                if _ca.button("Yes, Archive", type="primary", key="confirm_archive_btn", use_container_width=True):
+                    crm.connect()
+                    crm.cursor.execute("UPDATE test_definitions SET is_active = 0 WHERE test_name = ?", (_pending_archive,))
+                    crm.conn.commit(); crm.close()
+                    del st.session_state['pending_archive']
+                    st.rerun()
+                if _cb.button("Cancel", key="cancel_archive_btn", use_container_width=True):
+                    del st.session_state['pending_archive']
+                    st.rerun()
+                st.divider()
+
             if not df_active.empty:
-                st.dataframe(df_active, hide_index=True, use_container_width=True, column_config=_hide_cols)
+                _h = st.columns(_COL_W)
+                for _col, _label in zip(_h, ["**Test**", "**Group**", "**Unit**", "**Target**", ""]):
+                    _col.markdown(_label)
+                for _, _row in df_active.iterrows():
+                    _c = st.columns(_COL_W)
+                    _c[0].write(_row['Test Name'])
+                    _c[1].write(_row['Group'] or "—")
+                    _c[2].write(_row['Unit'] or "—")
+                    _c[3].write(_row['Target'] or "—")
+                    if _c[4].button("Archive", key=f"arch_{_row['Test Name']}", use_container_width=True):
+                        st.session_state['pending_archive'] = _row['Test Name']
+                        st.rerun()
             else:
                 st.caption("No active test definitions found.")
 
@@ -1056,22 +1083,35 @@ elif st.session_state.page == "Admin Console":
                         finally:
                             crm.close()
 
-        # Form to toggle active status (Soft Delete)
-        if not df_td.empty:
-            with st.form("toggle_test_form"):
-                toggle_test_name = st.selectbox("Select Test to Archive/Restore", options=df_td['Test Name'].tolist())
-                current_state = df_td[df_td['Test Name'] == toggle_test_name]['Active'].iloc[0]
-                action_text = "Archive (Hide)" if current_state == 1 else "Restore (Activate)"
-
-                if st.form_submit_button(f"🔄 {action_text} Selected Test"):
-                    new_state = 0 if current_state == 1 else 1
-                    crm.connect()
-                    crm.cursor.execute("UPDATE test_definitions SET is_active = ? WHERE test_name = ?", (new_state, toggle_test_name))
-                    crm.conn.commit(); crm.close()
-                    st.success(f"Test '{toggle_test_name}' has been updated."); st.rerun()
-
         with st.expander(f"🗄️ Archived Tests ({len(df_archived)})", expanded=False):
+            # Confirmation prompt for a pending restore action
+            _pending_restore = st.session_state.get('pending_restore')
+            if _pending_restore and _pending_restore in df_archived['Test Name'].values:
+                st.success(f"Restore **{_pending_restore}**? It will become available for patient test ordering.")
+                _ra, _rb = st.columns(2)
+                if _ra.button("Yes, Restore", type="primary", key="confirm_restore_btn", use_container_width=True):
+                    crm.connect()
+                    crm.cursor.execute("UPDATE test_definitions SET is_active = 1 WHERE test_name = ?", (_pending_restore,))
+                    crm.conn.commit(); crm.close()
+                    del st.session_state['pending_restore']
+                    st.rerun()
+                if _rb.button("Cancel", key="cancel_restore_btn", use_container_width=True):
+                    del st.session_state['pending_restore']
+                    st.rerun()
+                st.divider()
+
             if not df_archived.empty:
-                st.dataframe(df_archived, hide_index=True, use_container_width=True, column_config=_hide_cols)
+                _h = st.columns(_COL_W)
+                for _col, _label in zip(_h, ["**Test**", "**Group**", "**Unit**", "**Target**", ""]):
+                    _col.markdown(_label)
+                for _, _row in df_archived.iterrows():
+                    _c = st.columns(_COL_W)
+                    _c[0].write(_row['Test Name'])
+                    _c[1].write(_row['Group'] or "—")
+                    _c[2].write(_row['Unit'] or "—")
+                    _c[3].write(_row['Target'] or "—")
+                    if _c[4].button("Restore", key=f"rest_{_row['Test Name']}", use_container_width=True):
+                        st.session_state['pending_restore'] = _row['Test Name']
+                        st.rerun()
             else:
                 st.caption("No archived tests.")
