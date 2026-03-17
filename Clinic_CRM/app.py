@@ -1472,7 +1472,30 @@ elif st.session_state.page == "Admin Console":
             # Confirmation prompt for a pending archive action
             _pending_archive = st.session_state.get('pending_archive')
             if _pending_archive and _pending_archive in df_active['Test Name'].values:
-                st.warning(f"Archive **{_pending_archive}**? It will be hidden from patient test ordering.")
+                # Enrich warning with result counts and group completeness check
+                crm.connect()
+                crm.cursor.execute(
+                    "SELECT COUNT(*), COUNT(DISTINCT tr.patient_id) "
+                    "FROM test_results tr JOIN encounters e ON tr.encounter_id = e.encounter_id "
+                    "WHERE tr.test_name = ?", (_pending_archive,)
+                )
+                _pa_cnt = crm.cursor.fetchone()
+                crm.close()
+                _pa_results  = _pa_cnt[0] if _pa_cnt else 0
+                _pa_patients = _pa_cnt[1] if _pa_cnt else 0
+
+                _pa_row      = df_active[df_active['Test Name'] == _pending_archive]
+                _pa_group    = _pa_row.iloc[0]['Group'] if not _pa_row.empty else None
+                _pa_siblings = df_active[(df_active['Group'] == _pa_group) & (df_active['Test Name'] != _pending_archive)] if _pa_group else pd.DataFrame()
+
+                _pa_msg = f"Archive **{_pending_archive}**? It will be hidden from patient test ordering."
+                if _pa_results > 0:
+                    _pa_msg += f" This test has **{_pa_results} result(s)** across **{_pa_patients} patient(s)** — historical data is preserved but the test cannot be ordered."
+                st.warning(_pa_msg)
+                if not _pa_siblings.empty:
+                    _sib_names = ", ".join(_pa_siblings['Test Name'].tolist())
+                    st.info(f"**Group '{_pa_group}'** contains other active tests ({_sib_names}). Archiving this test will leave the group incomplete — charts that rely on all group members may not render correctly.", icon="ℹ️")
+
                 _ca, _cb = st.columns(2)
                 if _ca.button("Yes, Archive", type="primary", key="confirm_archive_btn", use_container_width=True):
                     crm.connect()
@@ -1559,6 +1582,28 @@ elif st.session_state.page == "Admin Console":
                         else:
                             st.warning("Test Name is required.")
 
+        def _cascade_rename(cur, old_name, new_name):
+            """Atomically rename a test across all tables and JSON config references."""
+            cur.execute("UPDATE test_definitions SET test_name = ? WHERE test_name = ?", (new_name, old_name))
+            cur.execute("UPDATE test_results     SET test_name = ? WHERE test_name = ?", (new_name, old_name))
+            cur.execute("UPDATE report_contents  SET test_name = ? WHERE test_name = ?", (new_name, old_name))
+            # Update any dots[] config references that point to old_name
+            cur.execute("SELECT test_id, chart_config FROM test_definitions WHERE chart_config LIKE ?",
+                        (f'%"test_name": "{old_name}"%',))
+            for _cid, _ccfg in cur.fetchall():
+                try:
+                    _cobj = json.loads(_ccfg or '{}')
+                    _changed = False
+                    for _dot in _cobj.get('dots', []):
+                        if _dot.get('test_name') == old_name:
+                            _dot['test_name'] = new_name
+                            _changed = True
+                    if _changed:
+                        cur.execute("UPDATE test_definitions SET chart_config = ? WHERE test_id = ?",
+                                    (json.dumps(_cobj), _cid))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         # Edit an existing test group
         if all_test_groups:
             with st.expander("✏️ Edit Existing Test", expanded=False):
@@ -1584,9 +1629,11 @@ elif st.session_state.page == "Admin Console":
                                 _bt_cfg = json.loads(_row['JSON'] or '{}')
                             except (json.JSONDecodeError, TypeError):
                                 _bt_cfg = {}
-                            st.session_state[f'{_bpfx}_name']   = _row['Test Name']
-                            st.session_state[f'{_bpfx}_unit']   = _row['Unit']   or ''
-                            st.session_state[f'{_bpfx}_target'] = _row['Target'] or ''
+                            st.session_state[f'{_bpfx}_name']      = _row['Test Name']
+                            st.session_state[f'{_bpfx}_orig_name'] = _row['Test Name']
+                            st.session_state[f'{_bpfx}_unit']      = _row['Unit']   or ''
+                            st.session_state[f'{_bpfx}_orig_unit'] = _row['Unit']   or ''
+                            st.session_state[f'{_bpfx}_target']    = _row['Target'] or ''
                             _zinit(_bpfx, _bt_cfg)
                     else:
                         # Find primary test (dot: the one with 'dots' in config; else first row)
@@ -1606,10 +1653,35 @@ elif st.session_state.page == "Admin Console":
                                 _et_cfg_init = json.loads(_primary_row['JSON'] or '{}')
                             except (json.JSONDecodeError, TypeError):
                                 _et_cfg_init = {}
-                            st.session_state['et_unit']         = _primary_row['Unit']   or ''
-                            st.session_state['et_target']       = _primary_row['Target'] or ''
-                            st.session_state['et_primary_test'] = _primary_row['Test Name']
+                            st.session_state['et_unit']           = _primary_row['Unit']   or ''
+                            st.session_state['et_orig_unit']      = _primary_row['Unit']   or ''
+                            st.session_state['et_target']         = _primary_row['Target'] or ''
+                            st.session_state['et_primary_test']   = _primary_row['Test Name']
+                            st.session_state['et_test_name']      = _primary_row['Test Name']
+                            st.session_state['et_orig_test_name'] = _primary_row['Test Name']
                             _zinit('et', _et_cfg_init)
+                            if _et_group_type == 'dot':
+                                for _di in range(st.session_state.get('et_n_dots', 0)):
+                                    st.session_state[f'et_dot_orig_name_{_di}'] = st.session_state.get(f'et_dot_name_{_di}', '')
+
+                    # Cache result/patient counts for this group
+                    _et_all_names = list(_et_group_tests['Test Name']) if not _et_group_tests.empty else []
+                    if _et_all_names:
+                        crm.connect()
+                        _et_ph = ','.join(['?'] * len(_et_all_names))
+                        crm.cursor.execute(
+                            f"SELECT COUNT(*), COUNT(DISTINCT tr.patient_id) "
+                            f"FROM test_results tr JOIN encounters e ON tr.encounter_id = e.encounter_id "
+                            f"WHERE tr.test_name IN ({_et_ph})",
+                            _et_all_names
+                        )
+                        _et_cnt = crm.cursor.fetchone()
+                        crm.close()
+                        st.session_state['et_result_count']  = _et_cnt[0] if _et_cnt else 0
+                        st.session_state['et_patient_count'] = _et_cnt[1] if _et_cnt else 0
+                    else:
+                        st.session_state['et_result_count']  = 0
+                        st.session_state['et_patient_count'] = 0
 
                 _et_gt = st.session_state.get('et_graph_type', 'none')
                 et_left, et_right = st.columns([1.1, 1], gap="large")
@@ -1621,9 +1693,11 @@ elif st.session_state.page == "Admin Console":
                         # ---- Per-test sections for bar groups ----
                         _et_bar_n = st.session_state.get('et_bar_n', 0)
                         for _bi in range(_et_bar_n):
-                            _bpfx    = f'et_bt_{_bi}'
+                            _bpfx = f'et_bt_{_bi}'
+                            if f'{_bpfx}_name' not in st.session_state:
+                                st.session_state[f'{_bpfx}_name'] = f"Test {_bi+1}"
+                            st.text_input("Test Name", key=f'{_bpfx}_name')
                             _bt_name = st.session_state.get(f'{_bpfx}_name', f"Test {_bi+1}")
-                            st.markdown(f"**{_bt_name}**")
                             _bc1, _bc2 = st.columns(2)
                             if f'{_bpfx}_unit' not in st.session_state:
                                 st.session_state[f'{_bpfx}_unit'] = ''
@@ -1658,6 +1732,9 @@ elif st.session_state.page == "Admin Console":
 
                     else:
                         # ---- Single-config editor (gauge / dot / none) ----
+                        if 'et_test_name' not in st.session_state:
+                            st.session_state['et_test_name'] = st.session_state.get('et_primary_test', '')
+                        st.text_input("Test Name", key='et_test_name')
                         _etm1, _etm2 = st.columns(2)
                         if 'et_unit' not in st.session_state:
                             st.session_state['et_unit'] = ''
@@ -1748,9 +1825,84 @@ elif st.session_state.page == "Admin Console":
                         # else: none — unit/target only
 
                     st.divider()
-                    if st.button("💾 Save Changes", type="primary", key="et_save_btn"):
+
+                    # --- Change detection ---
+                    _et_renames     = []  # [(old_name, new_name), ...]
+                    _et_unit_chgs   = []  # [(display_name, old_unit, new_unit), ...]
+                    if _et_gt == 'bar':
+                        for _bi in range(st.session_state.get('et_bar_n', 0)):
+                            _bpfx = f'et_bt_{_bi}'
+                            _on = st.session_state.get(f'{_bpfx}_orig_name', '')
+                            _nn = st.session_state.get(f'{_bpfx}_name', '').strip()
+                            if _on and _nn and _nn != _on:
+                                _et_renames.append((_on, _nn))
+                            _ou = st.session_state.get(f'{_bpfx}_orig_unit', '')
+                            _nu = st.session_state.get(f'{_bpfx}_unit', '').strip()
+                            if _nu != _ou:
+                                _et_unit_chgs.append((_nn or _on, _ou, _nu))
+                    elif _et_gt == 'dot':
+                        for _di in range(st.session_state.get('et_n_dots', 0)):
+                            _on = st.session_state.get(f'et_dot_orig_name_{_di}', '')
+                            _nn = st.session_state.get(f'et_dot_name_{_di}', '').strip()
+                            if _on and _nn and _nn != _on:
+                                _et_renames.append((_on, _nn))
+                        _ou = st.session_state.get('et_orig_unit', '')
+                        _nu = st.session_state.get('et_unit', '').strip()
+                        if _nu != _ou:
+                            _et_unit_chgs.append((edit_group_name, _ou, _nu))
+                    else:
+                        _on = st.session_state.get('et_orig_test_name', '')
+                        _nn = st.session_state.get('et_test_name', '').strip()
+                        if _on and _nn and _nn != _on:
+                            _et_renames.append((_on, _nn))
+                        _ou = st.session_state.get('et_orig_unit', '')
+                        _nu = st.session_state.get('et_unit', '').strip()
+                        if _nu != _ou:
+                            _et_unit_chgs.append((_nn or _on, _ou, _nu))
+
+                    _et_rc = st.session_state.get('et_result_count', 0)
+                    _et_pc = st.session_state.get('et_patient_count', 0)
+                    _et_needs_ack = bool(_et_renames or _et_unit_chgs)
+
+                    for _on, _nn in _et_renames:
+                        st.warning(
+                            f"**Renaming '{_on}' → '{_nn}'** will update all historical test results and "
+                            f"reports. Only do this to correct a labelling error — this cannot be undone.",
+                            icon="⚠️"
+                        )
+                    for _dn, _ou, _nu in _et_unit_chgs:
+                        st.warning(
+                            f"**Changing unit for '{_dn}' from '{_ou or '(none)'}' → '{_nu or '(none)'}'** "
+                            f"affects how all historical results are labelled. Only correct a labelling "
+                            f"error — this cannot be undone.",
+                            icon="⚠️"
+                        )
+                    if _et_rc > 0:
+                        st.info(
+                            f"This group has **{_et_rc} result(s)** across **{_et_pc} patient(s)**. "
+                            f"Zone and colour changes will affect how these are displayed in historical reports.",
+                            icon="ℹ️"
+                        )
+
+                    _et_ack = True
+                    if _et_needs_ack:
+                        _et_ack = st.checkbox(
+                            "I understand these changes affect historical data and cannot be undone.",
+                            key='et_ack_destructive'
+                        )
+
+                    if st.button("💾 Save Changes", type="primary", key="et_save_btn", disabled=(_et_needs_ack and not _et_ack)):
                         crm.connect()
                         try:
+                            # Apply cascade renames first
+                            _name_map = {}
+                            for _on, _nn in _et_renames:
+                                _cascade_rename(crm.cursor, _on, _nn)
+                                _name_map[_on] = _nn
+
+                            def _resolved(old):
+                                return _name_map.get(old, old)
+
                             if _et_gt == 'bar':
                                 for _bi in range(st.session_state.get('et_bar_n', 0)):
                                     _bpfx    = f'et_bt_{_bi}'
@@ -1811,13 +1963,15 @@ elif st.session_state.page == "Admin Console":
                                 else:
                                     _et_new_cfg = {}
 
-                                _et_primary = st.session_state.get('et_primary_test', '')
+                                # Use resolved (post-rename) name to locate the row in DB
+                                _et_primary     = st.session_state.get('et_primary_test', '')
+                                _et_primary_new = _resolved(_et_primary)
                                 crm.cursor.execute("""
                                     UPDATE test_definitions SET unit = ?, default_target = ?, chart_config = ?
                                     WHERE test_name = ?
                                 """, (st.session_state.get('et_unit', '').strip(),
                                       st.session_state.get('et_target', '').strip(),
-                                      json.dumps(_et_new_cfg), _et_primary))
+                                      json.dumps(_et_new_cfg), _et_primary_new))
 
                                 # Update secondary dot tests with secondary config
                                 if _et_gt == "dot":
@@ -1828,9 +1982,12 @@ elif st.session_state.page == "Admin Console":
                                                 WHERE test_name = ?
                                             """, (st.session_state.get('et_unit', '').strip(),
                                                   st.session_state.get('et_target', '').strip(),
-                                                  json.dumps(_et_secondary_cfg), _row['Test Name']))
+                                                  json.dumps(_et_secondary_cfg), _resolved(_row['Test Name'])))
 
                             crm.conn.commit()
+                            # Force reinit on next open so originals reflect saved values
+                            st.session_state.pop('et_selected', None)
+                            st.session_state.pop('et_ack_destructive', None)
                             st.success(f"'{edit_group_name}' saved!")
                             time.sleep(1)
                             st.rerun()
