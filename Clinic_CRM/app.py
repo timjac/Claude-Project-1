@@ -871,14 +871,15 @@ elif st.session_state.page == "Admin Console":
         # ---- SECTION A: Test Panels ----
         st.markdown("#### 🗂️ Test Panels")
 
-        if all_test_groups:
-            df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Panel Name', 'Chart Style', 'Description'])
-            st.dataframe(
-                df_tg, hide_index=True, use_container_width=True,
-                column_config={"group_id": None}
-            )
-        else:
-            st.caption("No test panels defined yet.")
+        with st.expander(f"📋 View Panels ({len(all_test_groups)})", expanded=False):
+            if all_test_groups:
+                df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Panel Name', 'Chart Style', 'Description'])
+                st.dataframe(
+                    df_tg, hide_index=True, use_container_width=True,
+                    column_config={"group_id": None}
+                )
+            else:
+                st.caption("No test panels defined yet.")
 
         with st.expander("➕ Add New Test Panel", expanded=False):
             new_panel_chart = st.selectbox(
