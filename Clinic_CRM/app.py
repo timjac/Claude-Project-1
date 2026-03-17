@@ -926,17 +926,20 @@ elif st.session_state.page == "Admin Console":
 
         if all_test_defs:
             df_td = pd.DataFrame(all_test_defs, columns=['ID', 'Test Name', 'Group', 'Unit', 'Target', 'Chart', 'Desc', 'JSON', 'Active'])
-
-            st.dataframe(
-                df_td, hide_index=True, use_container_width=True,
-                column_config={
-                    "ID": None, "Desc": None, "JSON": None,
-                    "Active": st.column_config.CheckboxColumn("Active?")
-                }
-            )
         else:
-            st.caption("No test definitions found.")
             df_td = pd.DataFrame(columns=['ID', 'Test Name', 'Group', 'Unit', 'Target', 'Chart', 'Desc', 'JSON', 'Active'])
+
+        with st.expander(f"📋 View Tests ({len(df_td)})", expanded=False):
+            if not df_td.empty:
+                st.dataframe(
+                    df_td, hide_index=True, use_container_width=True,
+                    column_config={
+                        "ID": None, "Desc": None, "JSON": None,
+                        "Active": st.column_config.CheckboxColumn("Active?")
+                    }
+                )
+            else:
+                st.caption("No test definitions found.")
 
         with st.expander("➕ Add New Test to a Panel", expanded=False):
             panel_options = [row['group_name'] for row in all_test_groups] if all_test_groups else []
