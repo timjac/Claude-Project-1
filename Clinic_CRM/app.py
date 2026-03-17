@@ -983,6 +983,26 @@ elif st.session_state.page == "Admin Console":
             - Transparent checkbox skips zone colour background in charts.
             Returns True if any zones have validation issues.
             """
+            # Handle any deferred zone removal BEFORE widgets are instantiated.
+            # (Writing to widget-bound keys while they are live causes StreamlitAPIException.)
+            _rm_key = f'{pfx}_pending_zone_rm'
+            if _rm_key in st.session_state:
+                _ri = st.session_state.pop(_rm_key)
+                _cur_n = st.session_state.get(f'{pfx}_n_zones', n)
+                if _cur_n > 1:
+                    for j in range(_ri, _cur_n - 1):
+                        for s in ['to', 'color', 'transp', 'label']:
+                            src = f'{pfx}_zone_{s}_{j+1}'
+                            dst = f'{pfx}_zone_{s}_{j}'
+                            if src in st.session_state:
+                                st.session_state[dst] = st.session_state.pop(src)
+                    for s in ['to', 'color', 'transp', 'label']:
+                        _dk = f'{pfx}_zone_{s}_{_cur_n-1}'
+                        if _dk in st.session_state:
+                            del st.session_state[_dk]
+                    st.session_state[f'{pfx}_n_zones'] = _cur_n - 1
+                st.rerun()
+
             has_issues = False
             _zh = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.8])
             for _lbl, _c in zip(["From ↓", "To", "Colour", "Label", "Transp.", ""], _zh):
@@ -1020,20 +1040,11 @@ elif st.session_state.page == "Admin Console":
                     st.session_state[f'{pfx}_zone_transp_{i}'] = False
                 _zc[4].checkbox("", key=f'{pfx}_zone_transp_{i}',
                                 label_visibility="collapsed")
-                # Remove
+                # Remove — defer the actual shift to next render to avoid writing
+                # to already-instantiated widget keys in the same pass
                 if _zc[5].button("✕", key=f'{pfx}_zone_rm_{i}{rm_key_sfx}',
                                   use_container_width=True) and n > 1:
-                    for j in range(i, n - 1):
-                        for s in ['to', 'color', 'transp', 'label']:
-                            src = f'{pfx}_zone_{s}_{j+1}'
-                            dst = f'{pfx}_zone_{s}_{j}'
-                            if src in st.session_state:
-                                st.session_state[dst] = st.session_state.pop(src)
-                    for s in ['to', 'color', 'transp', 'label']:
-                        _k = f'{pfx}_zone_{s}_{n-1}'
-                        if _k in st.session_state:
-                            del st.session_state[_k]
-                    st.session_state[f'{pfx}_n_zones'] = n - 1
+                    st.session_state[_rm_key] = i
                     st.rerun()
                 if bad:
                     st.warning(f"Zone {i+1}: 'to' ({to_v:g}) must be > 'from' ({from_v:g})", icon="⚠️")
