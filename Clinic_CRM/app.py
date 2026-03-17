@@ -960,7 +960,7 @@ elif st.session_state.page == "Admin Console":
                     _c[0].write(_row['Test Name'])
                     _c[1].write(_row['Group'] or "—")
                     _c[2].write(_row['Unit'] or "—")
-                    _c[3].write(_row['Target'] or "—")
+                    _c[3].write((_row['Target'] or "—").replace("<", "\\<").replace(">", "\\>"))
                     if _c[4].button("Archive", key=f"arch_{_row['Test Name']}", use_container_width=True):
                         st.session_state['pending_archive'] = _row['Test Name']
                         st.rerun()
@@ -1109,7 +1109,7 @@ elif st.session_state.page == "Admin Console":
                     _c[0].write(_row['Test Name'])
                     _c[1].write(_row['Group'] or "—")
                     _c[2].write(_row['Unit'] or "—")
-                    _c[3].write(_row['Target'] or "—")
+                    _c[3].write((_row['Target'] or "—").replace("<", "\\<").replace(">", "\\>"))
                     if _c[4].button("Restore", key=f"rest_{_row['Test Name']}", use_container_width=True):
                         st.session_state['pending_restore'] = _row['Test Name']
                         st.rerun()
