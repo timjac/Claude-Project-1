@@ -424,8 +424,8 @@ elif st.session_state.page == "Dashboard":
                         # Build clean dataframe for display
                         # Build clean dataframe for display
                         df_t = pd.DataFrame(filtered_tests, columns=[
-                            'Date', 'Test', 'Value', 'Unit', 'Group', 'Config', 'ResultNote', 'Target', 'Chart', 
-                            'ResultID', 'Status', 'TakenOn', 'TakenBy', 'TakenNote', 'RecOn', 'LogBy'
+                            'Date', 'Test', 'Value', 'Unit', 'Group', 'Config', 'ResultNote', 'Target', 'Chart',
+                            'ResultID', 'Status', 'TakenOn', 'TakenBy', 'TakenNote', 'RecOn', 'LogBy', 'TrendChart'
                         ])
                         
                         st.dataframe(
