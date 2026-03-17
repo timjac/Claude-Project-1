@@ -52,7 +52,9 @@ def get_patient_notes(pid, crm):
 def get_patient_tests(pid, crm):
     """Fetch test results joined with definitions (Updated for new lifecycle)."""
     crm.connect()
-    # Indices map: 0:date, 1:name, 2:value, 3:unit, 4:group, 5:config, 6:note, 7:target, 8:chart, 9:result_id, 10:status...
+    # Indices map: 0:date, 1:name, 2:value, 3:unit, 4:group, 5:config, 6:note, 7:target, 8:chart, 9:result_id,
+    #              10:status, 11:test_taken_on, 12:test_taken_by, 13:test_taken_note, 14:result_received_on,
+    #              15:result_logged_by, 16:trend_chart_type
     sql = """
         SELECT
             e.encounter_date,
@@ -70,7 +72,8 @@ def get_patient_tests(pid, crm):
             tr.test_taken_by,
             tr.test_taken_note,
             tr.result_received_on,
-            tr.result_logged_by
+            tr.result_logged_by,
+            COALESCE(tg.trend_chart_type, 'line') AS trend_chart_type
         FROM test_results tr
         JOIN encounters e ON tr.encounter_id = e.encounter_id
         LEFT JOIN test_definitions td ON tr.test_name = td.test_name

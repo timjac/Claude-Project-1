@@ -864,16 +864,16 @@ elif st.session_state.page == "Admin Console":
         all_test_defs = crm.cursor.fetchall()
 
         # 2. Fetch Test Groups for the panels section
-        crm.cursor.execute("SELECT group_id, group_name, chart_type, description FROM test_groups ORDER BY group_name")
+        crm.cursor.execute("SELECT group_id, group_name, chart_type, trend_chart_type, description FROM test_groups ORDER BY group_name")
         all_test_groups = crm.cursor.fetchall()
         crm.close()
-        
+
         # ---- SECTION A: Test Panels ----
         st.markdown("#### 🗂️ Test Panels")
 
         with st.expander(f"📋 View Panels ({len(all_test_groups)})", expanded=False):
             if all_test_groups:
-                df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Panel Name', 'Chart Style', 'Description'])
+                df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Panel Name', 'Chart Style', 'Trend Chart', 'Description'])
                 st.dataframe(
                     df_tg, hide_index=True, use_container_width=True,
                     column_config={"group_id": None}
@@ -882,7 +882,8 @@ elif st.session_state.page == "Admin Console":
                 st.caption("No test panels defined yet.")
 
         with st.expander("➕ Add New Test Panel", expanded=False):
-            new_panel_chart = st.selectbox(
+            _pc1, _pc2 = st.columns(2)
+            new_panel_chart = _pc1.selectbox(
                 "Chart Style",
                 [
                     "gauge (Standard dial chart)",
@@ -893,7 +894,18 @@ elif st.session_state.page == "Admin Console":
                 ],
                 key="new_panel_chart_select"
             )
+            new_panel_trend = _pc2.selectbox(
+                "Trend Chart",
+                [
+                    "line (Standard line trend)",
+                    "bp_trend (Blood Pressure river chart)",
+                    "multi_trend (Multi-line panel trend)",
+                    "none (No trend chart)"
+                ],
+                key="new_panel_trend_select"
+            )
             panel_chart_val = new_panel_chart.split(" ")[0]
+            panel_trend_val = new_panel_trend.split(" ")[0]
 
             with st.form("new_panel_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
@@ -905,9 +917,9 @@ elif st.session_state.page == "Admin Console":
                         crm.connect()
                         try:
                             crm.cursor.execute("""
-                                INSERT INTO test_groups (group_name, chart_type, description)
-                                VALUES (?, ?, ?)
-                            """, (new_panel_name.strip(), panel_chart_val, new_panel_desc.strip() or None))
+                                INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
+                                VALUES (?, ?, ?, ?)
+                            """, (new_panel_name.strip(), panel_chart_val, panel_trend_val, new_panel_desc.strip() or None))
                             crm.conn.commit()
                             st.success(f"Panel '{new_panel_name}' added successfully!")
                             time.sleep(1)
@@ -975,15 +987,11 @@ elif st.session_state.page == "Admin Console":
                 selected_panel = st.selectbox("Select Panel", options=panel_options, key="new_test_panel_select")
 
                 # Look up the chart type inherited from the selected panel
-                inherited_chart = next(
-                    (row['chart_type'] for row in all_test_groups if row['group_name'] == selected_panel),
-                    'gauge'
-                )
-                inherited_group_id = next(
-                    (row['group_id'] for row in all_test_groups if row['group_name'] == selected_panel),
-                    None
-                )
-                st.info(f"Chart style: **{inherited_chart}** (inherited from panel — not editable here)")
+                inherited_panel = next((row for row in all_test_groups if row['group_name'] == selected_panel), None)
+                inherited_chart    = inherited_panel['chart_type']       if inherited_panel else 'gauge'
+                inherited_trend    = inherited_panel['trend_chart_type'] if inherited_panel else 'line'
+                inherited_group_id = inherited_panel['group_id']         if inherited_panel else None
+                st.info(f"Chart style: **{inherited_chart}** | Trend chart: **{inherited_trend}** (inherited from panel — not editable here)")
 
                 with st.form("new_test_form", clear_on_submit=True):
                     col1, col2 = st.columns(2)
@@ -1011,22 +1019,23 @@ elif st.session_state.page == "Admin Console":
                         config_dict["safe_max"] = c2.number_input("Healthy Maximum", value=0.0, help="Enter the upper bound of the healthy range for this test")
 
                     elif inherited_chart == "bmi_bullet":
-                        crm.connect()
-                        crm.cursor.execute("SELECT chart_config FROM test_definitions WHERE chart_type = 'bmi_bullet' LIMIT 1")
-                        _bmi_row = crm.cursor.fetchone()
-                        crm.close()
-                        if _bmi_row and _bmi_row['chart_config']:
-                            config_dict = json.loads(_bmi_row['chart_config'])
-                            st.success("Standard BMI zones loaded from test definitions.")
-                        else:
-                            config_dict = {
-                                "axis_min": 10.0, "axis_max": 40.0,
-                                "zones": [
-                                    {"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"},
-                                    {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}
-                                ]
-                            }
-                            st.info("Using default BMI zones (no existing BMI test definition found).")
+                        st.markdown("#### BMI Zone Configuration")
+                        st.caption("Define the chart axis range and up to 5 coloured zones, left to right. Each zone extends from the previous limit up to the one you enter.")
+                        _ba, _bb = st.columns(2)
+                        bmi_axis_min = _ba.number_input("Chart Minimum", value=10.0, key="bmi_axis_min")
+                        bmi_axis_max = _bb.number_input("Chart Maximum", value=40.0, key="bmi_axis_max")
+                        _COLOR_OPTS = ["blue", "green", "warning", "alert"]
+                        _zone_defaults = [(18.5, "blue"), (25.0, "green"), (30.0, "warning"), (40.0, "alert"), (0.0, "blue")]
+                        _zone_labels   = ["Underweight", "Healthy", "Overweight", "Obese", "Zone 5 (optional)"]
+                        _bmi_zones = []
+                        for _zi, (_zdef_lim, _zdef_col) in enumerate(_zone_defaults):
+                            _zc1, _zc2, _zc3 = st.columns([1.5, 2, 1.5])
+                            _zc1.markdown(f"**{_zone_labels[_zi]}**")
+                            _z_limit = _zc2.number_input("Upper Limit", value=_zdef_lim, min_value=0.0, key=f"bmi_limit_{_zi}", label_visibility="collapsed")
+                            _z_color = _zc3.selectbox("Color", _COLOR_OPTS, index=_COLOR_OPTS.index(_zdef_col), key=f"bmi_color_{_zi}", label_visibility="collapsed")
+                            if _z_limit > 0:
+                                _bmi_zones.append({"limit": _z_limit, "color": _z_color})
+                        config_dict = {"axis_min": bmi_axis_min, "axis_max": bmi_axis_max, "zones": _bmi_zones}
 
                     st.divider()
                     if st.form_submit_button("💾 Save Test Definition", type="primary"):

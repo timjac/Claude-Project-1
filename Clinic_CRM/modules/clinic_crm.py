@@ -152,10 +152,11 @@ class ClinicCRM:
         # --- Table: Test Groups (first-class group entity) ---
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_groups (
-                group_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-                group_name TEXT UNIQUE NOT NULL,
-                chart_type TEXT NOT NULL DEFAULT 'gauge',
-                description TEXT
+                group_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name       TEXT UNIQUE NOT NULL,
+                chart_type       TEXT NOT NULL DEFAULT 'gauge',
+                trend_chart_type TEXT NOT NULL DEFAULT 'line',
+                description      TEXT
             );
         """)
 
@@ -297,8 +298,16 @@ class ClinicCRM:
 
         # Populate test_groups from distinct (test_group, chart_type) pairs — idempotent
         self.cursor.execute("""
-            INSERT OR IGNORE INTO test_groups (group_name, chart_type, description)
-            SELECT test_group, MAX(chart_type), MAX(description)
+            INSERT OR IGNORE INTO test_groups (group_name, chart_type, trend_chart_type, description)
+            SELECT
+                test_group,
+                MAX(chart_type),
+                CASE MAX(chart_type)
+                    WHEN 'bp_range'        THEN 'bp_trend'
+                    WHEN 'multi_bar_panel' THEN 'multi_trend'
+                    ELSE 'line'
+                END,
+                MAX(description)
             FROM test_definitions
             WHERE test_group IS NOT NULL
             GROUP BY test_group

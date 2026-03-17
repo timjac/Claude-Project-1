@@ -364,13 +364,15 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
         try: config = json.loads(config_str) if config_str else {}
         except json.JSONDecodeError: config = {}
 
+        trend_chart_type = latest[16] if len(latest) > 16 else 'line'
+
         img_gauge, img_trend = None, None
         display_title = group_name
         display_val = str(val)
         display_unit = unit if unit else ''
-        
-        # Standard Wireframe Height 
-        dynamic_chart_h = 42 
+
+        # Standard Wireframe Height
+        dynamic_chart_h = 42
 
         # --- ROUTING ENGINE ---
         if chart_type == 'text_only':
@@ -381,13 +383,8 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             # Generate the large typographic image for the right-hand column
             img_gauge = create_text_only_display(val, unit)
             
-            # If they have weighed in more than once, plot a standard trend line!
-            if len(group_data) > 1: 
-                try:
-                    # We use the standard line chart function since Weight is just a simple number
-                    img_trend = create_trend_chart(group_data, test_name, unit) 
-                except NameError:
-                    img_trend = None # Fallback if standard trend chart isn't imported/available
+            if trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit)
                     
             history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
             
@@ -415,9 +412,12 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             display_target = "See Chart"
             dynamic_chart_h = max(42, 20 + (len(panel_items) * 10))
 
-            unique_dates = list(set([t[0].split()[0] for t in group_data]))
-            if len(unique_dates) > 1:
-                img_trend = create_multi_trend_chart(group_data)
+            if trend_chart_type == 'multi_trend':
+                unique_dates = list(set([t[0].split()[0] for t in group_data]))
+                if len(unique_dates) > 1:
+                    img_trend = create_multi_trend_chart(group_data)
+            elif trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit)
 
             # --- NEW: STITCH CHOLESTEROL HISTORY ---
             history_dict = {}
@@ -434,7 +434,8 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             
         elif chart_type == 'bmi_bullet':
             img_gauge = create_bmi_chart(val, config)
-            if len(group_data) > 1: img_trend = create_trend_chart(group_data, test_name, unit)
+            if trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit)
             history_data = [(t[0].split()[0], str(t[2])) for t in group_data] # Standard history
             
         elif chart_type == 'bp_range':
@@ -452,8 +453,10 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
                 display_target = "<120/<80"
                 
                 img_gauge = create_bp_chart(latest_sys[2], latest_dia[2], config, display_title, unit)
-                if len(sys_data) > 1 and len(dia_data) > 1: 
+                if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
                     img_trend = create_bp_trend_chart(sys_data, dia_data, config)
+                elif trend_chart_type == 'line' and len(group_data) > 1:
+                    img_trend = create_trend_chart(group_data, test_name, unit)
 
                 # --- NEW: STITCH BP HISTORY ---
                 history_dict = {}
@@ -474,7 +477,8 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
                 
         elif chart_type == 'gauge':
             img_gauge = create_gauge_chart(val, config, test_name, unit)
-            if len(group_data) > 1: img_trend = create_trend_chart(group_data, test_name, unit)
+            if trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit)
             history_data = [(t[0].split()[0], str(t[2])) for t in group_data] # Standard history
 
         # --- SMART GRANULAR NOTE AGGREGATION ---
