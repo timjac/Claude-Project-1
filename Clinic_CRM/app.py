@@ -929,17 +929,16 @@ elif st.session_state.page == "Admin Console":
         else:
             df_td = pd.DataFrame(columns=['ID', 'Test Name', 'Group', 'Unit', 'Target', 'Chart', 'Desc', 'JSON', 'Active'])
 
-        with st.expander(f"📋 View Tests ({len(df_td)})", expanded=False):
-            if not df_td.empty:
-                st.dataframe(
-                    df_td, hide_index=True, use_container_width=True,
-                    column_config={
-                        "ID": None, "Desc": None, "JSON": None,
-                        "Active": st.column_config.CheckboxColumn("Active?")
-                    }
-                )
+        df_active   = df_td[df_td['Active'] == 1] if not df_td.empty else df_td
+        df_archived = df_td[df_td['Active'] == 0] if not df_td.empty else df_td
+
+        _hide_cols = {"ID": None, "Desc": None, "JSON": None, "Active": None}
+
+        with st.expander(f"📋 View Active Tests ({len(df_active)})", expanded=False):
+            if not df_active.empty:
+                st.dataframe(df_active, hide_index=True, use_container_width=True, column_config=_hide_cols)
             else:
-                st.caption("No test definitions found.")
+                st.caption("No active test definitions found.")
 
         with st.expander("➕ Add New Test to a Panel", expanded=False):
             panel_options = [row['group_name'] for row in all_test_groups] if all_test_groups else []
@@ -1070,3 +1069,9 @@ elif st.session_state.page == "Admin Console":
                     crm.cursor.execute("UPDATE test_definitions SET is_active = ? WHERE test_name = ?", (new_state, toggle_test_name))
                     crm.conn.commit(); crm.close()
                     st.success(f"Test '{toggle_test_name}' has been updated."); st.rerun()
+
+        with st.expander(f"🗄️ Archived Tests ({len(df_archived)})", expanded=False):
+            if not df_archived.empty:
+                st.dataframe(df_archived, hide_index=True, use_container_width=True, column_config=_hide_cols)
+            else:
+                st.caption("No archived tests.")
