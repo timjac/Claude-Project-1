@@ -1023,6 +1023,36 @@ elif st.session_state.page == "Admin Console":
                         else:
                             st.warning("Test Name is required.")
 
+        # Edit an existing test definition
+        if not df_td.empty:
+            with st.expander("✏️ Edit Existing Test", expanded=False):
+                edit_test_name = st.selectbox("Select Test to Edit", options=df_td['Test Name'].tolist(), key="edit_test_select")
+                edit_row = df_td[df_td['Test Name'] == edit_test_name].iloc[0]
+
+                with st.form("edit_test_form", clear_on_submit=False):
+                    col1, col2 = st.columns(2)
+                    edit_unit = col1.text_input("Unit", value=edit_row['Unit'] or "")
+                    edit_target = col2.text_input("Target Display Text", value=edit_row['Target'] or "")
+                    edit_config = st.text_area("Chart Config (JSON)", value=edit_row['JSON'] or "{}", height=120)
+
+                    if st.form_submit_button("💾 Save Changes", type="primary"):
+                        try:
+                            json.loads(edit_config)  # validate before saving
+                            crm.connect()
+                            crm.cursor.execute("""
+                                UPDATE test_definitions SET unit = ?, default_target = ?, chart_config = ?
+                                WHERE test_name = ?
+                            """, (edit_unit.strip(), edit_target.strip(), edit_config.strip(), edit_test_name))
+                            crm.conn.commit()
+                            crm.close()
+                            st.success(f"'{edit_test_name}' updated successfully!")
+                            time.sleep(1)
+                            st.rerun()
+                        except json.JSONDecodeError:
+                            st.error("Invalid JSON in Chart Config — check the format and try again.")
+                        finally:
+                            crm.close()
+
         # Form to toggle active status (Soft Delete)
         if not df_td.empty:
             with st.form("toggle_test_form"):
