@@ -972,6 +972,8 @@ elif st.session_state.page == "Admin Console":
             if config.get('graph_type') == 'bar':
                 st.session_state[f'{pfx}_bar_color']       = config.get('bar_color', '#003366')
                 st.session_state[f'{pfx}_bar_alert_color'] = config.get('bar_alert_color', '#DC3545')
+                st.session_state[f'{pfx}_barcol']          = config.get('bar_color', '#003366')
+                st.session_state[f'{pfx}_alertcol']        = config.get('bar_alert_color', '#DC3545')
 
         def _zrender(pfx, n, rm_key_sfx=""):
             """
@@ -1557,203 +1559,279 @@ elif st.session_state.page == "Admin Console":
                         else:
                             st.warning("Test Name is required.")
 
-        # Edit an existing test definition
-        if not df_td.empty:
+        # Edit an existing test group
+        if all_test_groups:
             with st.expander("✏️ Edit Existing Test", expanded=False):
-                edit_test_name = st.selectbox("Select Test to Edit", options=df_td['Test Name'].tolist(), key="edit_test_select")
-                edit_row = df_td[df_td['Test Name'] == edit_test_name].iloc[0]
+                _et_group_names = [row['group_name'] for row in all_test_groups]
+                edit_group_name = st.selectbox("Select Group to Edit", options=_et_group_names, key="edit_group_select")
+                _et_group_row  = next((row for row in all_test_groups if row['group_name'] == edit_group_name), None)
+                _et_group_type = _et_group_row['chart_type'] if _et_group_row else 'gauge'
+                _et_group_tests = df_td[df_td['Group'] == edit_group_name] if not df_td.empty else pd.DataFrame()
 
-                # Re-init zone editor when selection changes
-                if st.session_state.get('et_selected') != edit_test_name:
-                    # Wipe ALL et_ widget keys so no values bleed from the previous test
+                # Re-init when selection changes — wipe all et_ keys to prevent bleed-through
+                if st.session_state.get('et_selected') != edit_group_name:
                     for _k in list(st.session_state.keys()):
                         if _k.startswith('et_') and _k != 'et_selected':
                             del st.session_state[_k]
-                    st.session_state['et_selected'] = edit_test_name
-                    try:
-                        _et_cfg_init = json.loads(edit_row['JSON'] or '{}')
-                    except (json.JSONDecodeError, TypeError):
-                        _et_cfg_init = {}
-                    st.session_state['et_graph_type'] = _et_cfg_init.get('graph_type', 'none')
-                    st.session_state['et_unit']   = edit_row['Unit']   or ''
-                    st.session_state['et_target'] = edit_row['Target'] or ''
-                    _zinit('et', _et_cfg_init)
+                    st.session_state['et_selected']   = edit_group_name
+                    st.session_state['et_graph_type'] = _et_group_type
+
+                    if _et_group_type == 'bar':
+                        st.session_state['et_bar_n'] = len(_et_group_tests)
+                        for _i, (_, _row) in enumerate(_et_group_tests.iterrows()):
+                            _bpfx = f'et_bt_{_i}'
+                            try:
+                                _bt_cfg = json.loads(_row['JSON'] or '{}')
+                            except (json.JSONDecodeError, TypeError):
+                                _bt_cfg = {}
+                            st.session_state[f'{_bpfx}_name']   = _row['Test Name']
+                            st.session_state[f'{_bpfx}_unit']   = _row['Unit']   or ''
+                            st.session_state[f'{_bpfx}_target'] = _row['Target'] or ''
+                            _zinit(_bpfx, _bt_cfg)
+                    else:
+                        # Find primary test (dot: the one with 'dots' in config; else first row)
+                        _primary_row = None
+                        if _et_group_type == 'dot' and not _et_group_tests.empty:
+                            for _, _row in _et_group_tests.iterrows():
+                                try:
+                                    if 'dots' in json.loads(_row['JSON'] or '{}'):
+                                        _primary_row = _row
+                                        break
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                        if _primary_row is None and not _et_group_tests.empty:
+                            _primary_row = _et_group_tests.iloc[0]
+                        if _primary_row is not None:
+                            try:
+                                _et_cfg_init = json.loads(_primary_row['JSON'] or '{}')
+                            except (json.JSONDecodeError, TypeError):
+                                _et_cfg_init = {}
+                            st.session_state['et_unit']         = _primary_row['Unit']   or ''
+                            st.session_state['et_target']       = _primary_row['Target'] or ''
+                            st.session_state['et_primary_test'] = _primary_row['Test Name']
+                            _zinit('et', _et_cfg_init)
 
                 _et_gt = st.session_state.get('et_graph_type', 'none')
                 et_left, et_right = st.columns([1.1, 1], gap="large")
 
                 with et_left:
                     st.markdown(f"**Chart type:** `{_et_gt}`")
-                    _etm1, _etm2 = st.columns(2)
-                    if 'et_unit' not in st.session_state:
-                        st.session_state['et_unit'] = ''
-                    if 'et_target' not in st.session_state:
-                        st.session_state['et_target'] = ''
-                    _etm1.text_input("Unit", key='et_unit')
-                    _etm2.text_input("Target Display Text", key='et_target')
 
-                    if _et_gt == "gauge":
-                        _etc1, _etc2 = st.columns(2)
-                        _et_gs = _etc1.radio("Style", ["curved", "straight"],
-                                              index=["curved", "straight"].index(
-                                                  st.session_state.get('et_gauge_style', 'curved')),
-                                              key="et_gauge_style_radio")
-                        st.session_state['et_gauge_style'] = _et_gs
-                        if 'et_show_axis_labels' not in st.session_state:
-                            st.session_state['et_show_axis_labels'] = True
-                        _etc2.checkbox("Show min/max labels", key='et_show_axis_labels')
-                        _etaz_col, _ = st.columns(2)
-                        if 'et_axis_start' not in st.session_state:
-                            st.session_state['et_axis_start'] = 0.0
-                        _etaz_col.number_input("Axis Start", key='et_axis_start', step=0.1)
-                        _et_nz = st.session_state.get('et_n_zones', 2)
-                        st.markdown("**Zones**")
-                        _zrender('et', _et_nz)
-                        if st.button("+ Add Zone", key="et_add_zone"):
-                            _n = st.session_state.get('et_n_zones', 2)
-                            _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
-                            st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
-                            st.session_state[f'et_zone_color_{_n}']  = '#D4EDDA'
-                            st.session_state[f'et_zone_transp_{_n}'] = False
-                            st.session_state[f'et_zone_label_{_n}']  = ''
-                            st.session_state['et_n_zones'] = _n + 1
-                            st.rerun()
-
-                    elif _et_gt == "dot":
-                        _et_nd = st.session_state.get('et_n_dots', 2)
-                        st.markdown("**Dots**")
-                        _dh2 = st.columns([2, 2, 1.5, 1.5, 1])
-                        for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh2):
-                            _c.caption(_lbl)
-                        for _di in range(_et_nd):
-                            if f'et_dot_name_{_di}' not in st.session_state:
-                                st.session_state[f'et_dot_name_{_di}'] = ''
-                            if f'et_dot_label_{_di}' not in st.session_state:
-                                st.session_state[f'et_dot_label_{_di}'] = ''
-                            if f'et_dot_fill_{_di}' not in st.session_state:
-                                st.session_state[f'et_dot_fill_{_di}'] = '#003366'
-                            if f'et_dot_stroke_{_di}' not in st.session_state:
-                                st.session_state[f'et_dot_stroke_{_di}'] = '#003366'
-                            _etc = st.columns([2, 2, 1.5, 1.5, 1])
-                            _etc[0].text_input("Test Name", key=f'et_dot_name_{_di}', label_visibility="collapsed")
-                            _etc[1].text_input("Label",     key=f'et_dot_label_{_di}', label_visibility="collapsed")
-                            _etc[2].color_picker("Fill",    key=f'et_dot_fill_{_di}', label_visibility="collapsed")
-                            _etc[3].color_picker("Stroke",  key=f'et_dot_stroke_{_di}', label_visibility="collapsed")
-                            if _etc[4].button("✕", key=f'et_dot_rm_{_di}') and _et_nd > 1:
-                                for _j in range(_di, _et_nd - 1):
-                                    for _s in ['name', 'label', 'fill', 'stroke']:
-                                        src = f'et_dot_{_s}_{_j+1}'
-                                        dst = f'et_dot_{_s}_{_j}'
-                                        if src in st.session_state:
-                                            st.session_state[dst] = st.session_state.pop(src)
-                                for _s in ['name', 'label', 'fill', 'stroke']:
-                                    _k = f'et_dot_{_s}_{_et_nd-1}'
-                                    if _k in st.session_state:
-                                        del st.session_state[_k]
-                                st.session_state['et_n_dots'] = _et_nd - 1
+                    if _et_gt == 'bar':
+                        # ---- Per-test sections for bar groups ----
+                        _et_bar_n = st.session_state.get('et_bar_n', 0)
+                        for _bi in range(_et_bar_n):
+                            _bpfx    = f'et_bt_{_bi}'
+                            _bt_name = st.session_state.get(f'{_bpfx}_name', f"Test {_bi+1}")
+                            st.markdown(f"**{_bt_name}**")
+                            _bc1, _bc2 = st.columns(2)
+                            if f'{_bpfx}_unit' not in st.session_state:
+                                st.session_state[f'{_bpfx}_unit'] = ''
+                            if f'{_bpfx}_target' not in st.session_state:
+                                st.session_state[f'{_bpfx}_target'] = ''
+                            _bc1.text_input("Unit",   key=f'{_bpfx}_unit')
+                            _bc2.text_input("Target", key=f'{_bpfx}_target')
+                            _bcolor1, _bcolor2 = st.columns(2)
+                            if f'{_bpfx}_barcol' not in st.session_state:
+                                st.session_state[f'{_bpfx}_barcol'] = '#003366'
+                            if f'{_bpfx}_alertcol' not in st.session_state:
+                                st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
+                            _bcolor1.color_picker("Bar colour",       key=f'{_bpfx}_barcol')
+                            _bcolor2.color_picker("Alert bar colour", key=f'{_bpfx}_alertcol')
+                            if f'{_bpfx}_axis_start' not in st.session_state:
+                                st.session_state[f'{_bpfx}_axis_start'] = 0.0
+                            _baz_col, _ = st.columns(2)
+                            _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
+                            _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                            st.markdown("**Zones**")
+                            _zrender(_bpfx, _bnz, rm_key_sfx=f"_etbt{_bi}")
+                            if st.button(f"+ Add Zone ({_bt_name})", key=f'{_bpfx}_et_add_zone'):
+                                _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                                _prev = float(st.session_state.get(f'{_bpfx}_zone_to_{_n-1}', 0.0))
+                                st.session_state[f'{_bpfx}_zone_to_{_n}']     = _prev + 10.0
+                                st.session_state[f'{_bpfx}_zone_color_{_n}']  = '#D4EDDA'
+                                st.session_state[f'{_bpfx}_zone_transp_{_n}'] = False
+                                st.session_state[f'{_bpfx}_zone_label_{_n}']  = ''
+                                st.session_state[f'{_bpfx}_n_zones'] = _n + 1
                                 st.rerun()
-                        if _et_nd < 4 and st.button("+ Add Dot", key="et_add_dot"):
-                            st.session_state['et_n_dots'] = _et_nd + 1
-                            st.rerun()
-                        if 'et_axis_start' not in st.session_state:
-                            st.session_state['et_axis_start'] = 0.0
-                        st.number_input("Axis Start", key='et_axis_start', step=0.1)
-                        st.markdown("**Zones**")
-                        _et_nz = st.session_state.get('et_n_zones', 2)
-                        _zrender('et', _et_nz)
-                        if st.button("+ Add Zone", key="et_add_zone_dot"):
-                            _n = st.session_state.get('et_n_zones', 2)
-                            _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
-                            st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
-                            st.session_state[f'et_zone_color_{_n}']  = '#D4EDDA'
-                            st.session_state[f'et_zone_transp_{_n}'] = False
-                            st.session_state[f'et_zone_label_{_n}']  = ''
-                            st.session_state['et_n_zones'] = _n + 1
-                            st.rerun()
+                            st.markdown("---")
 
-                    elif _et_gt == "bar":
-                        if 'et_axis_start' not in st.session_state:
-                            st.session_state['et_axis_start'] = 0.0
-                        st.number_input("Axis Start", key='et_axis_start', step=0.1)
-                        if 'et_bar_color' not in st.session_state:
-                            st.session_state['et_bar_color'] = '#003366'
-                        if 'et_bar_alert_color' not in st.session_state:
-                            st.session_state['et_bar_alert_color'] = '#DC3545'
-                        _etbc1, _etbc2 = st.columns(2)
-                        _etbc1.color_picker("Bar colour",       key='et_bar_color')
-                        _etbc2.color_picker("Alert bar colour", key='et_bar_alert_color')
-                        st.markdown("**Zones**")
-                        _et_nz = st.session_state.get('et_n_zones', 2)
-                        _zrender('et', _et_nz)
-                        if st.button("+ Add Zone", key="et_add_zone_bar"):
-                            _n = st.session_state.get('et_n_zones', 2)
-                            _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
-                            st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
-                            st.session_state[f'et_zone_color_{_n}']  = '#D4EDDA'
-                            st.session_state[f'et_zone_transp_{_n}'] = False
-                            st.session_state[f'et_zone_label_{_n}']  = ''
-                            st.session_state['et_n_zones'] = _n + 1
-                            st.rerun()
+                    else:
+                        # ---- Single-config editor (gauge / dot / none) ----
+                        _etm1, _etm2 = st.columns(2)
+                        if 'et_unit' not in st.session_state:
+                            st.session_state['et_unit'] = ''
+                        if 'et_target' not in st.session_state:
+                            st.session_state['et_target'] = ''
+                        _etm1.text_input("Unit", key='et_unit')
+                        _etm2.text_input("Target Display Text", key='et_target')
 
-                    # else: none — unit/target only
+                        if _et_gt == "gauge":
+                            _etc1, _etc2 = st.columns(2)
+                            _et_gs = _etc1.radio("Style", ["curved", "straight"],
+                                                  index=["curved", "straight"].index(
+                                                      st.session_state.get('et_gauge_style', 'curved')),
+                                                  key="et_gauge_style_radio")
+                            st.session_state['et_gauge_style'] = _et_gs
+                            if 'et_show_axis_labels' not in st.session_state:
+                                st.session_state['et_show_axis_labels'] = True
+                            _etc2.checkbox("Show min/max labels", key='et_show_axis_labels')
+                            _etaz_col, _ = st.columns(2)
+                            if 'et_axis_start' not in st.session_state:
+                                st.session_state['et_axis_start'] = 0.0
+                            _etaz_col.number_input("Axis Start", key='et_axis_start', step=0.1)
+                            _et_nz = st.session_state.get('et_n_zones', 2)
+                            st.markdown("**Zones**")
+                            _zrender('et', _et_nz)
+                            if st.button("+ Add Zone", key="et_add_zone"):
+                                _n = st.session_state.get('et_n_zones', 2)
+                                _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
+                                st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
+                                st.session_state[f'et_zone_color_{_n}']  = '#D4EDDA'
+                                st.session_state[f'et_zone_transp_{_n}'] = False
+                                st.session_state[f'et_zone_label_{_n}']  = ''
+                                st.session_state['et_n_zones'] = _n + 1
+                                st.rerun()
+
+                        elif _et_gt == "dot":
+                            _et_nd = st.session_state.get('et_n_dots', 2)
+                            st.markdown("**Dots**")
+                            _dh2 = st.columns([2, 2, 1.5, 1.5, 1])
+                            for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh2):
+                                _c.caption(_lbl)
+                            for _di in range(_et_nd):
+                                if f'et_dot_name_{_di}' not in st.session_state:
+                                    st.session_state[f'et_dot_name_{_di}'] = ''
+                                if f'et_dot_label_{_di}' not in st.session_state:
+                                    st.session_state[f'et_dot_label_{_di}'] = ''
+                                if f'et_dot_fill_{_di}' not in st.session_state:
+                                    st.session_state[f'et_dot_fill_{_di}'] = '#003366'
+                                if f'et_dot_stroke_{_di}' not in st.session_state:
+                                    st.session_state[f'et_dot_stroke_{_di}'] = '#003366'
+                                _etc = st.columns([2, 2, 1.5, 1.5, 1])
+                                _etc[0].text_input("Test Name", key=f'et_dot_name_{_di}', label_visibility="collapsed")
+                                _etc[1].text_input("Label",     key=f'et_dot_label_{_di}', label_visibility="collapsed")
+                                _etc[2].color_picker("Fill",    key=f'et_dot_fill_{_di}', label_visibility="collapsed")
+                                _etc[3].color_picker("Stroke",  key=f'et_dot_stroke_{_di}', label_visibility="collapsed")
+                                if _etc[4].button("✕", key=f'et_dot_rm_{_di}') and _et_nd > 1:
+                                    for _j in range(_di, _et_nd - 1):
+                                        for _s in ['name', 'label', 'fill', 'stroke']:
+                                            src = f'et_dot_{_s}_{_j+1}'
+                                            dst = f'et_dot_{_s}_{_j}'
+                                            if src in st.session_state:
+                                                st.session_state[dst] = st.session_state.pop(src)
+                                    for _s in ['name', 'label', 'fill', 'stroke']:
+                                        _k = f'et_dot_{_s}_{_et_nd-1}'
+                                        if _k in st.session_state:
+                                            del st.session_state[_k]
+                                    st.session_state['et_n_dots'] = _et_nd - 1
+                                    st.rerun()
+                            if _et_nd < 4 and st.button("+ Add Dot", key="et_add_dot"):
+                                st.session_state['et_n_dots'] = _et_nd + 1
+                                st.rerun()
+                            if 'et_axis_start' not in st.session_state:
+                                st.session_state['et_axis_start'] = 0.0
+                            st.number_input("Axis Start", key='et_axis_start', step=0.1)
+                            st.markdown("**Zones**")
+                            _et_nz = st.session_state.get('et_n_zones', 2)
+                            _zrender('et', _et_nz)
+                            if st.button("+ Add Zone", key="et_add_zone_dot"):
+                                _n = st.session_state.get('et_n_zones', 2)
+                                _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
+                                st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
+                                st.session_state[f'et_zone_color_{_n}']  = '#D4EDDA'
+                                st.session_state[f'et_zone_transp_{_n}'] = False
+                                st.session_state[f'et_zone_label_{_n}']  = ''
+                                st.session_state['et_n_zones'] = _n + 1
+                                st.rerun()
+
+                        # else: none — unit/target only
 
                     st.divider()
                     if st.button("💾 Save Changes", type="primary", key="et_save_btn"):
-                        _et_nz   = st.session_state.get('et_n_zones', 2)
-                        _et_zones = _zbuild('et', _et_nz)
-                        _et_ax_min = _et_zones[0]['from'] if _et_zones else 0.0
-                        _et_ax_max = _et_zones[-1]['to']  if _et_zones else 100.0
-
-                        if _et_gt == "none":
-                            _et_new_cfg = {"graph_type": "none"}
-                        elif _et_gt == "gauge":
-                            _et_new_cfg = {
-                                "graph_type": "gauge",
-                                "gauge_style": st.session_state.get('et_gauge_style', 'curved'),
-                                "show_axis_labels": st.session_state.get('et_show_axis_labels', True),
-                                "axis_min": _et_ax_min,
-                                "axis_max": _et_ax_max,
-                                "zones": _et_zones
-                            }
-                        elif _et_gt == "dot":
-                            _et_nd = st.session_state.get('et_n_dots', 2)
-                            _et_dots = [
-                                {
-                                    "test_name":    st.session_state.get(f'et_dot_name_{_di}', ''),
-                                    "label":        st.session_state.get(f'et_dot_label_{_di}', ''),
-                                    "fill_color":   st.session_state.get(f'et_dot_fill_{_di}', '#003366'),
-                                    "stroke_color": st.session_state.get(f'et_dot_stroke_{_di}', '#003366'),
-                                }
-                                for _di in range(_et_nd)
-                            ]
-                            _et_new_cfg = {
-                                "graph_type": "dot",
-                                "axis_min": _et_ax_min,
-                                "axis_max": _et_ax_max,
-                                "zones": _et_zones,
-                                "dots": _et_dots
-                            }
-                        elif _et_gt == "bar":
-                            _et_new_cfg = {
-                                "graph_type": "bar",
-                                "bar_color":       st.session_state.get('et_bar_color', '#003366'),
-                                "bar_alert_color": st.session_state.get('et_bar_alert_color', '#DC3545'),
-                                "zones": _et_zones
-                            }
-                        else:
-                            _et_new_cfg = {}
-
                         crm.connect()
                         try:
-                            crm.cursor.execute("""
-                                UPDATE test_definitions SET unit = ?, default_target = ?, chart_config = ?
-                                WHERE test_name = ?
-                            """, (st.session_state.get('et_unit', '').strip(),
-                                  st.session_state.get('et_target', '').strip(),
-                                  json.dumps(_et_new_cfg),
-                                  edit_test_name))
+                            if _et_gt == 'bar':
+                                for _bi in range(st.session_state.get('et_bar_n', 0)):
+                                    _bpfx    = f'et_bt_{_bi}'
+                                    _bt_name = st.session_state.get(f'{_bpfx}_name', '')
+                                    if not _bt_name:
+                                        continue
+                                    _bnz      = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                                    _bt_zones = _zbuild(_bpfx, _bnz)
+                                    _bt_cfg   = {
+                                        "graph_type":      "bar",
+                                        "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
+                                        "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
+                                        "zones": _bt_zones
+                                    }
+                                    crm.cursor.execute("""
+                                        UPDATE test_definitions SET unit = ?, default_target = ?, chart_config = ?
+                                        WHERE test_name = ?
+                                    """, (st.session_state.get(f'{_bpfx}_unit', '').strip(),
+                                          st.session_state.get(f'{_bpfx}_target', '').strip(),
+                                          json.dumps(_bt_cfg), _bt_name))
+                            else:
+                                _et_nz    = st.session_state.get('et_n_zones', 2)
+                                _et_zones = _zbuild('et', _et_nz)
+                                _et_ax_min = _et_zones[0]['from'] if _et_zones else 0.0
+                                _et_ax_max = _et_zones[-1]['to']  if _et_zones else 100.0
+
+                                if _et_gt == "none":
+                                    _et_new_cfg = {"graph_type": "none"}
+                                elif _et_gt == "gauge":
+                                    _et_new_cfg = {
+                                        "graph_type":       "gauge",
+                                        "gauge_style":      st.session_state.get('et_gauge_style', 'curved'),
+                                        "show_axis_labels": st.session_state.get('et_show_axis_labels', True),
+                                        "axis_min": _et_ax_min, "axis_max": _et_ax_max,
+                                        "zones": _et_zones
+                                    }
+                                elif _et_gt == "dot":
+                                    _et_nd   = st.session_state.get('et_n_dots', 2)
+                                    _et_dots = [
+                                        {
+                                            "test_name":    st.session_state.get(f'et_dot_name_{_di}', ''),
+                                            "label":        st.session_state.get(f'et_dot_label_{_di}', ''),
+                                            "fill_color":   st.session_state.get(f'et_dot_fill_{_di}', '#003366'),
+                                            "stroke_color": st.session_state.get(f'et_dot_stroke_{_di}', '#003366'),
+                                        }
+                                        for _di in range(_et_nd)
+                                    ]
+                                    _et_new_cfg = {
+                                        "graph_type": "dot",
+                                        "axis_min": _et_ax_min, "axis_max": _et_ax_max,
+                                        "zones": _et_zones, "dots": _et_dots
+                                    }
+                                    _et_secondary_cfg = {
+                                        "graph_type": "dot", "dot_role": "secondary",
+                                        "axis_min": _et_ax_min, "axis_max": _et_ax_max,
+                                        "zones": _et_zones
+                                    }
+                                else:
+                                    _et_new_cfg = {}
+
+                                _et_primary = st.session_state.get('et_primary_test', '')
+                                crm.cursor.execute("""
+                                    UPDATE test_definitions SET unit = ?, default_target = ?, chart_config = ?
+                                    WHERE test_name = ?
+                                """, (st.session_state.get('et_unit', '').strip(),
+                                      st.session_state.get('et_target', '').strip(),
+                                      json.dumps(_et_new_cfg), _et_primary))
+
+                                # Update secondary dot tests with secondary config
+                                if _et_gt == "dot":
+                                    for _, _row in _et_group_tests.iterrows():
+                                        if _row['Test Name'] != _et_primary:
+                                            crm.cursor.execute("""
+                                                UPDATE test_definitions SET unit = ?, default_target = ?, chart_config = ?
+                                                WHERE test_name = ?
+                                            """, (st.session_state.get('et_unit', '').strip(),
+                                                  st.session_state.get('et_target', '').strip(),
+                                                  json.dumps(_et_secondary_cfg), _row['Test Name']))
+
                             crm.conn.commit()
-                            st.success(f"'{edit_test_name}' updated successfully!")
+                            st.success(f"'{edit_group_name}' saved!")
                             time.sleep(1)
                             st.rerun()
                         except Exception as _e:
@@ -1764,58 +1842,65 @@ elif st.session_state.page == "Admin Console":
                 with et_right:
                     st.markdown("#### Preview")
                     try:
-                        _et_nz_p     = st.session_state.get('et_n_zones', 2)
-                        _et_zones_p  = _zbuild('et', _et_nz_p)
-                        _et_ax_min_p = _et_zones_p[0]['from'] if _et_zones_p else 0.0
-                        _et_ax_max_p = _et_zones_p[-1]['to']  if _et_zones_p else 100.0
-
-                        if _et_gt == "none":
-                            _et_img = render_text(72.5, st.session_state.get('et_unit', ''))
-                        elif _et_gt == "gauge":
-                            _mock_v = _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * 0.55
-                            _et_img = render_gauge(_mock_v, {
-                                "graph_type": "gauge",
-                                "gauge_style": st.session_state.get('et_gauge_style', 'curved'),
-                                "show_axis_labels": st.session_state.get('et_show_axis_labels', True),
-                                "axis_min": _et_ax_min_p, "axis_max": _et_ax_max_p,
-                                "zones": _et_zones_p
-                            })
-                        elif _et_gt == "dot":
-                            _et_nd_p = st.session_state.get('et_n_dots', 2)
-                            _et_mock_dots = {
-                                (st.session_state.get(f'et_dot_name_{i}') or f"Test{i+1}"): _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * (0.4 + i * 0.2)
-                                for i in range(min(_et_nd_p, 2))
-                            }
-                            _et_dot_cfg = [
-                                {
-                                    "test_name":    st.session_state.get(f'et_dot_name_{i}') or f"Test{i+1}",
-                                    "fill_color":   st.session_state.get(f'et_dot_fill_{i}', '#003366'),
-                                    "stroke_color": st.session_state.get(f'et_dot_stroke_{i}', '#003366'),
-                                    "label":        st.session_state.get(f'et_dot_label_{i}', f"T{i+1}"),
-                                }
-                                for i in range(min(_et_nd_p, 2))
-                            ]
-                            _et_img = render_dot(_et_mock_dots, {
-                                "graph_type": "dot",
-                                "axis_min": _et_ax_min_p, "axis_max": _et_ax_max_p,
-                                "zones": _et_zones_p,
-                                "dots": _et_dot_cfg
-                            })
-                        elif _et_gt == "bar":
-                            _et_img = render_bars([{
-                                "name":   edit_test_name,
-                                "value":  _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * 0.55,
-                                "unit":   st.session_state.get('et_unit', ''),
-                                "target": st.session_state.get('et_target', ''),
-                                "config": {
-                                    "graph_type": "bar",
-                                    "bar_color":       st.session_state.get('et_bar_color', '#003366'),
-                                    "bar_alert_color": st.session_state.get('et_bar_alert_color', '#DC3545'),
-                                    "zones": _et_zones_p
-                                }
-                            }])
+                        if _et_gt == 'bar':
+                            _et_bar_items_p = []
+                            for _bi in range(st.session_state.get('et_bar_n', 0)):
+                                _bpfx = f'et_bt_{_bi}'
+                                _bnz  = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                                _bt_zones_p = _zbuild(_bpfx, _bnz)
+                                _mock_v = (_bt_zones_p[0]['to'] + _bt_zones_p[-1]['from']) / 2 if _bt_zones_p else 5.0
+                                _et_bar_items_p.append({
+                                    "name":   st.session_state.get(f'{_bpfx}_name', f"Test {_bi+1}"),
+                                    "value":  _mock_v,
+                                    "unit":   st.session_state.get(f'{_bpfx}_unit', ''),
+                                    "target": st.session_state.get(f'{_bpfx}_target', ''),
+                                    "config": {
+                                        "graph_type":      "bar",
+                                        "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
+                                        "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
+                                        "zones": _bt_zones_p
+                                    }
+                                })
+                            _et_img = render_bars(_et_bar_items_p)
                         else:
-                            _et_img = None
+                            _et_nz_p     = st.session_state.get('et_n_zones', 2)
+                            _et_zones_p  = _zbuild('et', _et_nz_p)
+                            _et_ax_min_p = _et_zones_p[0]['from'] if _et_zones_p else 0.0
+                            _et_ax_max_p = _et_zones_p[-1]['to']  if _et_zones_p else 100.0
+
+                            if _et_gt == "none":
+                                _et_img = render_text(72.5, st.session_state.get('et_unit', ''))
+                            elif _et_gt == "gauge":
+                                _mock_v = _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * 0.55
+                                _et_img = render_gauge(_mock_v, {
+                                    "graph_type":       "gauge",
+                                    "gauge_style":      st.session_state.get('et_gauge_style', 'curved'),
+                                    "show_axis_labels": st.session_state.get('et_show_axis_labels', True),
+                                    "axis_min": _et_ax_min_p, "axis_max": _et_ax_max_p,
+                                    "zones": _et_zones_p
+                                })
+                            elif _et_gt == "dot":
+                                _et_nd_p = st.session_state.get('et_n_dots', 2)
+                                _et_mock_dots = {
+                                    (st.session_state.get(f'et_dot_name_{i}') or f"Test{i+1}"): _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * (0.4 + i * 0.2)
+                                    for i in range(min(_et_nd_p, 2))
+                                }
+                                _et_dot_cfg = [
+                                    {
+                                        "test_name":    st.session_state.get(f'et_dot_name_{i}') or f"Test{i+1}",
+                                        "fill_color":   st.session_state.get(f'et_dot_fill_{i}', '#003366'),
+                                        "stroke_color": st.session_state.get(f'et_dot_stroke_{i}', '#003366'),
+                                        "label":        st.session_state.get(f'et_dot_label_{i}', f"T{i+1}"),
+                                    }
+                                    for i in range(min(_et_nd_p, 2))
+                                ]
+                                _et_img = render_dot(_et_mock_dots, {
+                                    "graph_type": "dot",
+                                    "axis_min": _et_ax_min_p, "axis_max": _et_ax_max_p,
+                                    "zones": _et_zones_p, "dots": _et_dot_cfg
+                                })
+                            else:
+                                _et_img = None
 
                         if _et_img:
                             st.image(_et_img, use_container_width=True)
