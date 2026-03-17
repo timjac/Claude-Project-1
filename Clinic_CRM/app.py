@@ -1475,7 +1475,7 @@ elif st.session_state.page == "Admin Console":
                 # Enrich warning with result counts and group completeness check
                 crm.connect()
                 crm.cursor.execute(
-                    "SELECT COUNT(*), COUNT(DISTINCT tr.patient_id) "
+                    "SELECT COUNT(*), COUNT(DISTINCT e.patient_id) "
                     "FROM test_results tr JOIN encounters e ON tr.encounter_id = e.encounter_id "
                     "WHERE tr.test_name = ?", (_pending_archive,)
                 )
@@ -1670,7 +1670,7 @@ elif st.session_state.page == "Admin Console":
                         crm.connect()
                         _et_ph = ','.join(['?'] * len(_et_all_names))
                         crm.cursor.execute(
-                            f"SELECT COUNT(*), COUNT(DISTINCT tr.patient_id) "
+                            f"SELECT COUNT(*), COUNT(DISTINCT e.patient_id) "
                             f"FROM test_results tr JOIN encounters e ON tr.encounter_id = e.encounter_id "
                             f"WHERE tr.test_name IN ({_et_ph})",
                             _et_all_names
