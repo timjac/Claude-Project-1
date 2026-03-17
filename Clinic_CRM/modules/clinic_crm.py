@@ -51,12 +51,6 @@ class ClinicCRM:
             );
         """)
 
-        # Migration: add display_role column to existing databases that pre-date it
-        try:
-            self.cursor.execute("ALTER TABLE field_definitions ADD COLUMN display_role TEXT DEFAULT NULL")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
         # --- Table: Patient History (The EAV Table) ---
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS patient_history (
@@ -176,17 +170,10 @@ class ClinicCRM:
                 chart_type TEXT DEFAULT 'gauge',
                 description TEXT,
                 chart_config TEXT,
-                is_active INTEGER DEFAULT 1 -- NEW: Soft delete flag for Admin
+                is_active INTEGER DEFAULT 1,
+                group_id INTEGER REFERENCES test_groups(group_id)
             );
         """)
-
-        # Migration: add group_id FK column to existing databases that pre-date it
-        try:
-            self.cursor.execute(
-                "ALTER TABLE test_definitions ADD COLUMN group_id INTEGER REFERENCES test_groups(group_id)"
-            )
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
         # --- Table: Report Log ---
         self.cursor.execute("""
