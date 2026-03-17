@@ -3,6 +3,17 @@ import hashlib
 import datetime
 import random
 import json
+import os
+import sys
+
+# Import status constants; fall back gracefully if path not yet on sys.path
+try:
+    from constants import APPT_SCHEDULED, APPT_COMPLETED, APPT_NO_SHOW
+except ImportError:
+    _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _base not in sys.path:
+        sys.path.insert(0, _base)
+    from constants import APPT_SCHEDULED, APPT_COMPLETED, APPT_NO_SHOW
 
 class ClinicCRM:
     def __init__(self, db_name="family_clinic.db"):
@@ -35,9 +46,16 @@ class ClinicCRM:
                 field_display_name TEXT NOT NULL,
                 field_group TEXT,
                 data_type TEXT DEFAULT 'text',
-                ordinal_position INTEGER
+                ordinal_position INTEGER,
+                display_role TEXT DEFAULT NULL
             );
         """)
+
+        # Migration: add display_role column to existing databases that pre-date it
+        try:
+            self.cursor.execute("ALTER TABLE field_definitions ADD COLUMN display_role TEXT DEFAULT NULL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # --- Table: Patient History (The EAV Table) ---
         self.cursor.execute("""
@@ -205,26 +223,39 @@ class ClinicCRM:
         """)
 
         # --- Populate Field Definitions ---
+        # display_role: 'name' = part of patient heading, 'caption' = shown in subtitle, NULL = not in header
         fields = [
-            ("first_name", "First Name", "personal", "text", 1),
-            ("middle_names", "Middle Names", "personal", "text", 2),
-            ("last_name", "Last Name", "personal", "text", 3),
-            ("preferred_name", "Preferred Name", "personal", "text", 4),
-            ("date_of_birth", "Date of Birth", "personal", "date", 5),
-            ("address_line_1", "Address Line 1", "address", "text", 6),
-            ("address_line_2", "Address Line 2", "address", "text", 7),
-            ("address_town", "Town/City", "address", "text", 8),
-            ("address_postcode", "Postcode", "address", "text", 9),
-            ("phone", "Phone Number", "contact", "text", 10),
-            ("email", "Email Address", "contact", "email", 11),
-            ("blood_group", "Blood Group", "clinical", "text", 12)
+            ("first_name", "First Name", "personal", "text", 1, "name"),
+            ("middle_names", "Middle Names", "personal", "text", 2, None),
+            ("last_name", "Last Name", "personal", "text", 3, "name"),
+            ("preferred_name", "Preferred Name", "personal", "text", 4, None),
+            ("date_of_birth", "Date of Birth", "personal", "date", 5, "caption"),
+            ("address_line_1", "Address Line 1", "address", "text", 6, None),
+            ("address_line_2", "Address Line 2", "address", "text", 7, None),
+            ("address_town", "Town/City", "address", "text", 8, None),
+            ("address_postcode", "Postcode", "address", "text", 9, None),
+            ("phone", "Phone Number", "contact", "text", 10, None),
+            ("email", "Email Address", "contact", "email", 11, None),
+            ("blood_group", "Blood Group", "clinical", "text", 12, "caption")
         ]
-        
+
         self.cursor.executemany("""
-            INSERT OR IGNORE INTO field_definitions 
-            (field_name, field_display_name, field_group, data_type, ordinal_position)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO field_definitions
+            (field_name, field_display_name, field_group, data_type, ordinal_position, display_role)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, fields)
+
+        # Stamp display_role on rows that pre-date this column (UPDATE is idempotent)
+        header_roles = [
+            ("name",    "first_name"),
+            ("name",    "last_name"),
+            ("caption", "date_of_birth"),
+            ("caption", "blood_group"),
+        ]
+        self.cursor.executemany(
+            "UPDATE field_definitions SET display_role = ? WHERE field_name = ? AND display_role IS NULL",
+            header_roles
+        )
 
         # --- Populate Test Definitions ---
         definitions = [
@@ -279,6 +310,50 @@ class ClinicCRM:
             INSERT OR IGNORE INTO system_settings (setting_key, setting_value)
             VALUES ('report_footer', 'Jack''s Family Clinic | 123 Health Way, Medical District | Phone: (555) 019-2837')
         """)
+
+        # --- Seed configurable lookup values (DB-driven, no magic strings in code) ---
+        config_seeds = [
+            ("encounter_types",   json.dumps(["Clinical Encounter", "Telephone Consult", "Admin/Chart Review"])),
+            ("staff_roles",       json.dumps(["Staff", "Admin"])),
+            ("admin_roles",       json.dumps(["Admin"])),
+            ("max_schedule_days", "7"),
+            ("report_theme_presets", json.dumps({
+                "Classic Blue": {
+                    "page_bg": "#E6F5FF", "banner_bg": "#FFFFFF", "inner_box": "#F8FBFF",
+                    "border": "#B4D2E6", "text_primary": "#003366", "text_muted": "#505050",
+                    "radius": 5, "spacing": 8, "font": "Helvetica"
+                },
+                "Modern Minimal": {
+                    "page_bg": "#F5F5F5", "banner_bg": "#FFFFFF", "inner_box": "#FAFAFA",
+                    "border": "#E0E0E0", "text_primary": "#212121", "text_muted": "#757575",
+                    "radius": 0, "spacing": 12, "font": "Roboto"
+                },
+                "Warm Emerald": {
+                    "page_bg": "#E8F5E9", "banner_bg": "#FFFFFF", "inner_box": "#F1F8E9",
+                    "border": "#C8E6C9", "text_primary": "#1B5E20", "text_muted": "#558B2F",
+                    "radius": 8, "spacing": 6, "font": "Times"
+                },
+                "Sunset Coral": {
+                    "page_bg": "#FFF3E0", "banner_bg": "#FFFFFF", "inner_box": "#FFF8E1",
+                    "border": "#FFCC80", "text_primary": "#E65100", "text_muted": "#8D6E63",
+                    "radius": 12, "spacing": 10, "font": "Helvetica"
+                },
+                "Royal Violet": {
+                    "page_bg": "#F3E5F5", "banner_bg": "#FFFFFF", "inner_box": "#FAFAFA",
+                    "border": "#CE93D8", "text_primary": "#4A148C", "text_muted": "#6A1B9A",
+                    "radius": 4, "spacing": 8, "font": "Montserrat"
+                },
+                "Crisp Slate": {
+                    "page_bg": "#ECEFF1", "banner_bg": "#FFFFFF", "inner_box": "#F5F7F8",
+                    "border": "#B0BEC5", "text_primary": "#263238", "text_muted": "#546E7A",
+                    "radius": 2, "spacing": 9, "font": "Open Sans"
+                }
+            })),
+        ]
+        self.cursor.executemany(
+            "INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)",
+            config_seeds
+        )
 
         print("--- Database Initialized Successfully ---")
         self.close()
@@ -454,25 +529,25 @@ class ClinicCRM:
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
         self.cursor.execute("""
-            SELECT appointment_id, appointment_date 
-            FROM appointments 
-            WHERE patient_id = ? AND appointment_date < ? AND status = 'Scheduled'
-        """, (patient_id, today_str))
-        
+            SELECT appointment_id, appointment_date
+            FROM appointments
+            WHERE patient_id = ? AND appointment_date < ? AND status = ?
+        """, (patient_id, today_str, APPT_SCHEDULED))
+
         past_appts = self.cursor.fetchall()
-        
+
         for appt in past_appts:
             appt_id = appt['appointment_id']
             appt_date = appt['appointment_date']
-            
+
             # Point to 'encounters' now
             self.cursor.execute("""
-                SELECT 1 FROM encounters 
+                SELECT 1 FROM encounters
                 WHERE patient_id = ? AND DATE(encounter_date) = ?
             """, (patient_id, appt_date))
-            
+
             has_encounter = self.cursor.fetchone()
-            new_status = 'Completed' if has_encounter else 'No Show'
+            new_status = APPT_COMPLETED if has_encounter else APPT_NO_SHOW
             
             self.cursor.execute("UPDATE appointments SET status = ? WHERE appointment_id = ?", (new_status, appt_id))
             

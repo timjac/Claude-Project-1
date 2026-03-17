@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime
 import hashlib
+from constants import APPT_SCHEDULED
 
 def go_to_lobby():
     st.session_state.page = "Lobby"
@@ -86,7 +87,7 @@ def get_patient_tests(pid, crm):
 
 def get_field_definitions(crm):
     crm.connect()
-    crm.cursor.execute("SELECT field_name, field_display_name, field_group FROM field_definitions ORDER BY ordinal_position")
+    crm.cursor.execute("SELECT field_name, field_display_name, field_group, display_role FROM field_definitions ORDER BY ordinal_position")
     data = crm.cursor.fetchall()
     crm.close()
     return data
@@ -238,13 +239,13 @@ def get_clinic_schedule(crm, start_date, end_date):
     sql = """
         SELECT appointment_id, patient_id, appointment_date, appointment_time, provider, reason
         FROM appointments
-        WHERE appointment_date >= ? AND appointment_date <= ? AND status = 'Scheduled'
+        WHERE appointment_date >= ? AND appointment_date <= ? AND status = ?
         ORDER BY appointment_date ASC, appointment_time ASC
     """
-    crm.cursor.execute(sql, (str(start_date), str(end_date)))
+    crm.cursor.execute(sql, (str(start_date), str(end_date), APPT_SCHEDULED))
     appts = crm.cursor.fetchall()
     crm.close()
-    
+
     if not appts:
         return []
 

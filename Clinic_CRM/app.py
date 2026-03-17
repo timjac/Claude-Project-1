@@ -2,15 +2,19 @@ import streamlit as st
 import pandas as pd
 import os
 import time
-import sqlite3 # <--- ADD THIS LINE
+import sqlite3
 from datetime import datetime, timedelta, date
 from modules.clinic_crm import ClinicCRM
-from streamlit_sortables import sort_items 
-from modules.reports import create_custom_report_pdf 
+from streamlit_sortables import sort_items
+from modules.reports import create_custom_report_pdf
 from app_functions import (
     go_to_lobby, go_to_patient, get_patient_details, get_patient_encounters, get_patient_notes,
     get_patient_tests, get_field_definitions, calculate_age, get_notes_for_encounter, log_report_generation,
     hash_password, check_credentials, login_screen, get_patient_appointments, get_clinic_schedule
+)
+from constants import (
+    APPT_SCHEDULED, APPT_COMPLETED, APPT_NO_SHOW, APPT_CANCELLED,
+    TEST_PENDING, TEST_COMPLETE
 )
 import json
 import base64
@@ -26,6 +30,26 @@ def get_crm():
     return crm
 
 crm = get_crm()
+
+# --- DB-DRIVEN CONFIGURATION (single source of truth via system_settings) ---
+ENCOUNTER_TYPES   = json.loads(crm.get_setting("encounter_types",  '["Clinical Encounter", "Telephone Consult", "Admin/Chart Review"]'))
+STAFF_ROLES       = json.loads(crm.get_setting("staff_roles",      '["Staff", "Admin"]'))
+ADMIN_ROLES       = json.loads(crm.get_setting("admin_roles",      '["Admin"]'))
+MAX_SCHEDULE_DAYS = int(crm.get_setting("max_schedule_days", "7"))
+
+# Available fonts: built-in PDF fonts + any .ttf files present in assets/fonts/
+_BUILTIN_FONTS = ["Helvetica", "Times", "Courier"]
+_font_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+_custom_fonts = sorted(
+    set(os.path.splitext(f)[0].replace("-Regular", "").replace("-Bold", "").replace("-Italic", "")
+        for f in os.listdir(_font_dir) if f.endswith(".ttf"))
+) if os.path.isdir(_font_dir) else []
+AVAILABLE_FONTS = _BUILTIN_FONTS + [f for f in _custom_fonts if f not in _BUILTIN_FONTS]
+
+# Patient header field roles (drives lobby + dashboard header — no hardcoded field names)
+_field_defs = get_field_definitions(crm)
+_NAME_FIELDS    = [f['field_name'] for f in _field_defs if f['display_role'] == 'name']
+_CAPTION_FIELDS = [(f['field_name'], f['field_display_name']) for f in _field_defs if f['display_role'] == 'caption']
 
 # --- SESSION STATE MANAGEMENT ---
 if "page" not in st.session_state:
@@ -63,7 +87,7 @@ with st.sidebar:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
             
-        if st.session_state.get('role') == 'Admin':
+        if st.session_state.get('role') in ADMIN_ROLES:
             st.divider()
             st.subheader("⚙️ Admin Tools")
             if st.button("⚙️ Admin Console", use_container_width=True):
@@ -113,8 +137,10 @@ if st.session_state.page == "Lobby":
                     with st.container(border=True):
                         c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
                         c1.write(f"**ID:** {p['patient_id']}")
-                        c2.write(f"**{p.get('first_name','')} {p.get('last_name','')}**")
-                        c3.write(f"DOB: {p.get('date_of_birth','N/A')}")
+                        patient_name = ' '.join(filter(None, (p.get(f, '') for f in _NAME_FIELDS)))
+                        c2.write(f"**{patient_name}**")
+                        caption_parts = [f"{label}: {p.get(fn, 'N/A')}" for fn, label in _CAPTION_FIELDS]
+                        c3.write(' | '.join(caption_parts))
                         if c4.button("Open", key=f"btn_{p['patient_id']}", use_container_width=True):
                             go_to_patient(p['patient_id'])
             else:
@@ -132,11 +158,11 @@ if st.session_state.page == "Lobby":
         
         if schedule_filter == "Today": start_d, end_d = today_date, today_date
         elif schedule_filter == "Tomorrow": start_d, end_d = today_date + timedelta(days=1), today_date + timedelta(days=1)
-        elif schedule_filter == "Next 7 Days": start_d, end_d = today_date, today_date + timedelta(days=6)
+        elif schedule_filter == "Next 7 Days": start_d, end_d = today_date, today_date + timedelta(days=MAX_SCHEDULE_DAYS - 1)
         elif schedule_filter == "Custom Range":
             custom_dates = st.date_input("Select Date Range", value=(today_date, today_date + timedelta(days=3)), format="DD/MM/YYYY")
             if len(custom_dates) == 2:
-                if (custom_dates[1] - custom_dates[0]).days > 7: st.warning("⚠️ Please select a range of 7 days or fewer.")
+                if (custom_dates[1] - custom_dates[0]).days > MAX_SCHEDULE_DAYS: st.warning(f"⚠️ Please select a range of {MAX_SCHEDULE_DAYS} days or fewer.")
                 else: start_d, end_d = custom_dates
             else: st.info("Please select an end date.")
             
@@ -170,8 +196,10 @@ elif st.session_state.page == "Dashboard":
     top_c1, top_c2 = st.columns([6, 1])
     with top_c1:
         if not is_new_patient:
-            st.markdown(f"## 👤 {patient_data.get('first_name', '')} {patient_data.get('last_name', '')}")
-            st.caption(f"ID: {pid} | DOB: {patient_data.get('date_of_birth', '')} | Blood: {patient_data.get('blood_group', 'Unknown')}")
+            patient_name = ' '.join(filter(None, (patient_data.get(f, '') for f in _NAME_FIELDS)))
+            st.markdown(f"## 👤 {patient_name}")
+            caption_parts = [f"ID: {pid}"] + [f"{label}: {patient_data.get(fn, 'Unknown')}" for fn, label in _CAPTION_FIELDS]
+            st.caption(' | '.join(caption_parts))
         else:
             st.title("👤 New Patient Registration")
     with top_c2:
@@ -282,7 +310,7 @@ elif st.session_state.page == "Dashboard":
             with tab_notes:
                 with st.expander("➕ Add Clinical Note", expanded=False):
                     with st.form("add_note_form", clear_on_submit=True):
-                        enc_type = st.selectbox("Encounter Type", ["Clinical Encounter", "Telephone Consult", "Admin/Chart Review"])
+                        enc_type = st.selectbox("Encounter Type", ENCOUNTER_TYPES)
                         new_note = st.text_area("Write note here...", height=150)
                         if st.form_submit_button("💾 Save Note", type="primary"):
                             if new_note.strip():
@@ -317,7 +345,7 @@ elif st.session_state.page == "Dashboard":
                 with st.expander("➕ Add / Order New Test", expanded=False):
                     st.info("💡 **Tip:** Leave the 'Result Value' blank to save the test as Pending.")
                     selected_group = st.selectbox("Select Test Panel / Group", options=group_list)
-                    enc_type_test = st.selectbox("Encounter Type (for the order)", ["Clinical Encounter", "Telephone Consult", "Admin/Chart Review"])
+                    enc_type_test = st.selectbox("Encounter Type (for the order)", ENCOUNTER_TYPES)
                     
                     with st.form(f"add_test_form"):
                         st.markdown(f"**Enter data for: {selected_group}**")
@@ -370,7 +398,7 @@ elif st.session_state.page == "Dashboard":
                 # --- DISPLAY TESTS (With Pending/Complete Filter) ---
                 tests = get_patient_tests(pid, crm)
                 if tests:
-                    filter_status = st.radio("Filter Tests:", ["All", "Pending", "Complete"], horizontal=True)
+                    filter_status = st.radio("Filter Tests:", ["All", TEST_PENDING, TEST_COMPLETE], horizontal=True)
                     
                     # Indices mapped from get_patient_tests
                     filtered_tests = []
@@ -405,7 +433,7 @@ elif st.session_state.page == "Dashboard":
                         )
                         
                         # --- PENDING RESOLUTION UI ---
-                        pending_df = df_t[df_t['Status'] == 'Pending']
+                        pending_df = df_t[df_t['Status'] == TEST_PENDING]
                         if not pending_df.empty:
                             st.divider()
                             st.subheader("⏳ Resolve Pending Tests")
@@ -438,7 +466,7 @@ elif st.session_state.page == "Dashboard":
             with tab_report:
                 tests = get_patient_tests(pid, crm)
                 # Only include Complete tests in the report
-                complete_tests = [t for t in tests if t[10] == 'Complete']
+                complete_tests = [t for t in tests if t[10] == TEST_COMPLETE]
                 
                 if complete_tests:
                     st.header("📄 Custom Report Builder")
@@ -565,12 +593,12 @@ elif st.session_state.page == "Dashboard":
                 appts = get_patient_appointments(pid, crm)
                 
                 if appts:
-                    upcoming = [a for a in appts if a[5] == 'Scheduled']
-                    noshow = [a for a in appts if a[5] == 'No Show']
-                    
+                    upcoming = [a for a in appts if a[5] == APPT_SCHEDULED]
+                    noshow = [a for a in appts if a[5] == APPT_NO_SHOW]
+
                     def color_status(val):
-                        if val == 'No Show': return 'color: #dc3545'
-                        if val == 'Scheduled': return 'color: #28a745'
+                        if val == APPT_NO_SHOW: return 'color: #dc3545'
+                        if val == APPT_SCHEDULED: return 'color: #28a745'
                         return ''
 
                     st.subheader("🟢 Upcoming")
@@ -580,7 +608,7 @@ elif st.session_state.page == "Dashboard":
                         appt_mapping = {a[0]: f"{a[1]} at {a[2]} with {a[3]}" for a in upcoming}
                         cancel_id = st.selectbox("Cancel an upcoming appointment?", options=list(appt_mapping.keys()), format_func=lambda x: appt_mapping[x])
                         if cancel_id and st.button("🚫 Cancel Selected Appointment"):
-                            crm.update_appointment_status(cancel_id, "Cancelled"); st.rerun()
+                            crm.update_appointment_status(cancel_id, APPT_CANCELLED); st.rerun()
                     else: st.info("No upcoming appointments.")
 
                     if noshow:
@@ -594,7 +622,7 @@ elif st.session_state.page == "Dashboard":
 # =========================================================
 
 elif st.session_state.page == "Admin Console":
-    if st.session_state.get('role') != 'Admin':
+    if st.session_state.get('role') not in ADMIN_ROLES:
         st.error("Unauthorized access."); st.stop()
 
     st.title("⚙️ Admin Console")
@@ -614,7 +642,7 @@ elif st.session_state.page == "Admin Console":
                 c1, c2, c3 = st.columns(3)
                 n_user = c1.text_input("New Username")
                 n_pwd = c2.text_input("New Password", type="password")
-                n_role = c3.selectbox("Role", ["Staff", "Admin"])
+                n_role = c3.selectbox("Role", STAFF_ROLES)
                 if st.form_submit_button("Create User", type="primary"):
                     if n_user.strip() and n_pwd.strip():
                         if crm.add_staff_member(n_user.strip(), n_pwd.strip(), n_role): st.success(f"✅ User '{n_user}' created!")
@@ -664,37 +692,13 @@ elif st.session_state.page == "Admin Console":
     with tab_report_design:
         st.subheader("📄 Health Report Designer")
         
-        # --- FULL PRESETS RESTORED ---
-        PRESETS = {
+        # Theme presets are seeded into system_settings by initialize_database.
+        # Reading from DB means presets can be edited without touching code.
+        PRESETS = json.loads(crm.get_setting("report_theme_presets", "{}")) or {
             "Classic Blue": {
                 "page_bg": "#E6F5FF", "banner_bg": "#FFFFFF", "inner_box": "#F8FBFF",
                 "border": "#B4D2E6", "text_primary": "#003366", "text_muted": "#505050",
                 "radius": 5, "spacing": 8, "font": "Helvetica"
-            },
-            "Modern Minimal": {
-                "page_bg": "#F5F5F5", "banner_bg": "#FFFFFF", "inner_box": "#FAFAFA",
-                "border": "#E0E0E0", "text_primary": "#212121", "text_muted": "#757575",
-                "radius": 0, "spacing": 12, "font": "Roboto"
-            },
-            "Warm Emerald": {
-                "page_bg": "#E8F5E9", "banner_bg": "#FFFFFF", "inner_box": "#F1F8E9",
-                "border": "#C8E6C9", "text_primary": "#1B5E20", "text_muted": "#558B2F",
-                "radius": 8, "spacing": 6, "font": "Times"
-            },
-            "Sunset Coral": {
-                "page_bg": "#FFF3E0", "banner_bg": "#FFFFFF", "inner_box": "#FFF8E1",
-                "border": "#FFCC80", "text_primary": "#E65100", "text_muted": "#8D6E63",
-                "radius": 12, "spacing": 10, "font": "Helvetica"
-            },
-            "Royal Violet": {
-                "page_bg": "#F3E5F5", "banner_bg": "#FFFFFF", "inner_box": "#FAFAFA",
-                "border": "#CE93D8", "text_primary": "#4A148C", "text_muted": "#6A1B9A",
-                "radius": 4, "spacing": 8, "font": "Montserrat" 
-            },
-            "Crisp Slate": {
-                "page_bg": "#ECEFF1", "banner_bg": "#FFFFFF", "inner_box": "#F5F7F8",
-                "border": "#B0BEC5", "text_primary": "#263238", "text_muted": "#546E7A",
-                "radius": 2, "spacing": 9, "font": "Open Sans"
             }
         }
         
@@ -734,9 +738,8 @@ elif st.session_state.page == "Admin Console":
             st.divider(); st.markdown("#### ⚙️ Global Report Settings")
             with st.form("theme_designer_form", border=False):
                 
-                # --- ALL 6 FONTS RESTORED ---
+                # Font list is built at startup by scanning assets/fonts/ + built-in PDF fonts
                 c_font, c_rad, c_spc = st.columns(3)
-                AVAILABLE_FONTS = ["Helvetica", "Times", "Courier", "Roboto", "Montserrat", "Open Sans"]
                 try: font_index = AVAILABLE_FONTS.index(theme.get('font', 'Helvetica'))
                 except ValueError: font_index = 0
                 
@@ -869,27 +872,35 @@ elif st.session_state.page == "Admin Console":
                     
                     c1, c2, c3, c4 = st.columns(4)
                     config_dict["axis_min"] = c1.number_input("Absolute Minimum (Left Edge)", value=0.0)
-                    config_dict["safe_min"] = c2.number_input("Healthy Min (Green Start)", value=20.0)
-                    config_dict["safe_max"] = c3.number_input("Healthy Max (Green End)", value=80.0)
+                    config_dict["safe_min"] = c2.number_input("Healthy Min (Green Start)", value=0.0, help="Enter the lower bound of the healthy range for this test")
+                    config_dict["safe_max"] = c3.number_input("Healthy Max (Green End)", value=0.0, help="Enter the upper bound of the healthy range for this test")
                     config_dict["axis_max"] = c4.number_input("Absolute Maximum (Right Edge)", value=100.0)
-                    
+
                 elif chart_val == "multi_bar_panel":
                     st.markdown("#### Healthy Range")
                     st.caption("Bar panels auto-scale their outer edges, so they only need the healthy targets.")
                     c1, c2 = st.columns(2)
-                    config_dict["safe_min"] = c1.number_input("Healthy Minimum", value=0.0)
-                    config_dict["safe_max"] = c2.number_input("Healthy Maximum", value=5.0)
+                    config_dict["safe_min"] = c1.number_input("Healthy Minimum", value=0.0, help="Enter the lower bound of the healthy range for this test")
+                    config_dict["safe_max"] = c2.number_input("Healthy Maximum", value=0.0, help="Enter the upper bound of the healthy range for this test")
 
                 elif chart_val == "bmi_bullet":
-                    # Hardcode the complex BMI zones so the user doesn't have to
-                    st.success("Standard BMI zones will be applied automatically.")
-                    config_dict = {
-                        "axis_min": 10.0, "axis_max": 40.0,
-                        "zones": [
-                            {"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"},
-                            {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}
-                        ]
-                    }
+                    # Load BMI zones from the existing test definition — single source of truth
+                    crm.connect()
+                    crm.cursor.execute("SELECT chart_config FROM test_definitions WHERE chart_type = 'bmi_bullet' LIMIT 1")
+                    _bmi_row = crm.cursor.fetchone()
+                    crm.close()
+                    if _bmi_row and _bmi_row['chart_config']:
+                        config_dict = json.loads(_bmi_row['chart_config'])
+                        st.success("Standard BMI zones loaded from test definitions.")
+                    else:
+                        config_dict = {
+                            "axis_min": 10.0, "axis_max": 40.0,
+                            "zones": [
+                                {"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"},
+                                {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}
+                            ]
+                        }
+                        st.info("Using default BMI zones (no existing BMI test definition found).")
 
                 st.divider()
                 if st.form_submit_button("💾 Save Test Definition", type="primary"):
