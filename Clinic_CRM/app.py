@@ -881,55 +881,207 @@ elif st.session_state.page == "Admin Console":
             else:
                 st.caption("No test panels defined yet.")
 
-        with st.expander("➕ Add New Test Panel", expanded=False):
-            _pc1, _pc2 = st.columns(2)
-            new_panel_chart = _pc1.selectbox(
+        with st.expander("➕ Add Standalone Test (Gauge / BMI / Text / Blood Pressure)", expanded=False):
+            st.caption("Creates a test panel and its definition(s) in one step. For single-metric tests — nothing can be added to these panels later.")
+            _sc1, _sc2 = st.columns(2)
+            standalone_chart = _sc1.selectbox(
                 "Chart Style",
                 [
                     "gauge (Standard dial chart)",
-                    "multi_bar_panel (For grouping multiple tests together)",
                     "text_only (No chart, just numbers/text)",
-                    "bp_range (Blood Pressure style)",
-                    "bmi_bullet (BMI specific)"
+                    "bmi_bullet (BMI specific)",
+                    "bp_range (Blood Pressure — creates Systolic + Diastolic)"
                 ],
-                key="new_panel_chart_select"
+                key="standalone_chart_select"
             )
-            new_panel_trend = _pc2.selectbox(
+            standalone_trend = _sc2.selectbox(
                 "Trend Chart",
                 [
                     "line (Standard line trend)",
                     "bp_trend (Blood Pressure river chart)",
-                    "multi_trend (Multi-line panel trend)",
                     "none (No trend chart)"
                 ],
-                key="new_panel_trend_select"
+                key="standalone_trend_select"
             )
-            panel_chart_val = new_panel_chart.split(" ")[0]
-            panel_trend_val = new_panel_trend.split(" ")[0]
+            s_chart_val = standalone_chart.split(" ")[0]
+            s_trend_val = standalone_trend.split(" ")[0]
 
-            with st.form("new_panel_form", clear_on_submit=True):
+            with st.form("standalone_test_form", clear_on_submit=True):
+                if s_chart_val == "bp_range":
+                    st.markdown("**Blood Pressure Panel Setup**")
+                    st.caption("Creates a panel group with Systolic and Diastolic test definitions.")
+                    col1, col2 = st.columns(2)
+                    s_panel_name = col1.text_input("Panel Name", value="Blood Pressure")
+                    s_panel_desc = col2.text_input("Description (optional)", placeholder="e.g., Resting blood pressure")
+                    col3, col4, col5 = st.columns(3)
+                    s_sys_name = col3.text_input("Systolic Test Name", value="Systolic")
+                    s_dia_name = col4.text_input("Diastolic Test Name", value="Diastolic")
+                    s_bp_unit  = col5.text_input("Unit", value="mmHg")
+                    col6, col7 = st.columns(2)
+                    s_sys_target = col6.text_input("Systolic Target", value="90-120")
+                    s_dia_target = col7.text_input("Diastolic Target", value="60-80")
+                    st.markdown("#### Chart Boundaries")
+                    st.caption("Shared axis range and separate healthy zones for Systolic and Diastolic.")
+                    _b1, _b2 = st.columns(2)
+                    s_axis_min = _b1.number_input("Absolute Minimum (Left Edge)", value=40.0)
+                    s_axis_max = _b2.number_input("Absolute Maximum (Right Edge)", value=200.0)
+                    _b3, _b4, _b5, _b6 = st.columns(4)
+                    s_sys_safe_min = _b3.number_input("Systolic Safe Min", value=90.0)
+                    s_sys_safe_max = _b4.number_input("Systolic Safe Max", value=120.0)
+                    s_dia_safe_min = _b5.number_input("Diastolic Safe Min", value=60.0)
+                    s_dia_safe_max = _b6.number_input("Diastolic Safe Max", value=80.0)
+                else:
+                    col1, col2 = st.columns(2)
+                    s_test_name  = col1.text_input("Test Name (also used as Panel Name)")
+                    s_unit       = col2.text_input("Unit (e.g., nmol/L, %)")
+                    s_target     = st.text_input("Target Display Text (e.g., '50-125' or '>95')")
+                    s_panel_desc = st.text_input("Description (optional)", placeholder="e.g., Measures liver function")
+                    s_config_dict = {}
+                    if s_chart_val == "gauge":
+                        st.markdown("#### Chart Boundaries")
+                        st.caption("Define the absolute edges of the chart and the healthy 'Green' zone within it.")
+                        c1, c2, c3, c4 = st.columns(4)
+                        s_config_dict["axis_min"] = c1.number_input("Absolute Minimum", value=0.0,   key="s_axis_min")
+                        s_config_dict["safe_min"] = c2.number_input("Healthy Min",       value=0.0,   key="s_safe_min")
+                        s_config_dict["safe_max"] = c3.number_input("Healthy Max",        value=0.0,   key="s_safe_max")
+                        s_config_dict["axis_max"] = c4.number_input("Absolute Maximum",  value=100.0, key="s_axis_max")
+                    elif s_chart_val == "bmi_bullet":
+                        st.markdown("#### BMI Zone Configuration")
+                        st.caption("Define the chart axis range and up to 5 coloured zones, left to right.")
+                        _ba, _bb = st.columns(2)
+                        bmi_axis_min = _ba.number_input("Chart Minimum", value=10.0, key="s_bmi_axis_min")
+                        bmi_axis_max = _bb.number_input("Chart Maximum", value=40.0, key="s_bmi_axis_max")
+                        _COLOR_OPTS   = ["blue", "green", "warning", "alert"]
+                        _zone_defaults = [(18.5, "blue"), (25.0, "green"), (30.0, "warning"), (40.0, "alert"), (0.0, "blue")]
+                        _zone_labels   = ["Underweight", "Healthy", "Overweight", "Obese", "Zone 5 (optional)"]
+                        _bmi_zones = []
+                        for _zi, (_zdef_lim, _zdef_col) in enumerate(_zone_defaults):
+                            _zc1, _zc2, _zc3 = st.columns([1.5, 2, 1.5])
+                            _zc1.markdown(f"**{_zone_labels[_zi]}**")
+                            _z_limit = _zc2.number_input("Upper Limit", value=_zdef_lim, min_value=0.0, key=f"s_bmi_limit_{_zi}", label_visibility="collapsed")
+                            _z_color = _zc3.selectbox("Color", _COLOR_OPTS, index=_COLOR_OPTS.index(_zdef_col), key=f"s_bmi_color_{_zi}", label_visibility="collapsed")
+                            if _z_limit > 0:
+                                _bmi_zones.append({"limit": _z_limit, "color": _z_color})
+                        s_config_dict = {"axis_min": bmi_axis_min, "axis_max": bmi_axis_max, "zones": _bmi_zones}
+                    # text_only: no config needed
+
+                st.divider()
+                if st.form_submit_button("💾 Save", type="primary"):
+                    if s_chart_val == "bp_range":
+                        if s_panel_name.strip() and s_sys_name.strip() and s_dia_name.strip():
+                            crm.connect()
+                            try:
+                                crm.cursor.execute("""
+                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
+                                    VALUES (?, ?, ?, ?)
+                                """, (s_panel_name.strip(), "bp_range", s_trend_val, s_panel_desc.strip() or None))
+                                new_gid = crm.cursor.lastrowid
+                                sys_cfg = json.dumps({"axis_min": s_axis_min, "axis_max": s_axis_max, "safe_min": s_sys_safe_min, "safe_max": s_sys_safe_max})
+                                dia_cfg = json.dumps({"axis_min": s_axis_min, "axis_max": s_axis_max, "safe_min": s_dia_safe_min, "safe_max": s_dia_safe_max})
+                                for (t_name, t_target, t_cfg) in [(s_sys_name.strip(), s_sys_target.strip(), sys_cfg),
+                                                                   (s_dia_name.strip(), s_dia_target.strip(), dia_cfg)]:
+                                    crm.cursor.execute("""
+                                        INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    """, (t_name, s_panel_name.strip(), s_bp_unit.strip(), t_target, "bp_range", t_cfg, new_gid))
+                                crm.conn.commit()
+                                st.success(f"Blood Pressure panel '{s_panel_name}' created!")
+                                time.sleep(1)
+                                st.rerun()
+                            except sqlite3.IntegrityError as e:
+                                st.error(f"Error: {e}")
+                            finally:
+                                crm.close()
+                        else:
+                            st.warning("Panel name, Systolic name, and Diastolic name are all required.")
+                    else:
+                        if s_test_name.strip():
+                            crm.connect()
+                            try:
+                                crm.cursor.execute("""
+                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
+                                    VALUES (?, ?, ?, ?)
+                                """, (s_test_name.strip(), s_chart_val, s_trend_val, s_panel_desc.strip() or None))
+                                new_gid = crm.cursor.lastrowid
+                                crm.cursor.execute("""
+                                    INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """, (s_test_name.strip(), s_test_name.strip(), s_unit.strip(), s_target.strip(), s_chart_val, json.dumps(s_config_dict), new_gid))
+                                crm.conn.commit()
+                                st.success(f"Test '{s_test_name}' created successfully!")
+                                time.sleep(1)
+                                st.rerun()
+                            except sqlite3.IntegrityError as e:
+                                st.error(f"Error: {e}")
+                            finally:
+                                crm.close()
+                        else:
+                            st.warning("Test Name is required.")
+
+        with st.expander("➕ Add Multi-Test Panel (Cholesterol, Liver Function, etc.)", expanded=False):
+            st.caption("Creates a multi-metric panel with all component tests defined upfront. More tests can be added later.")
+            _mc1, _mc2 = st.columns(2)
+            num_panel_tests = int(_mc1.number_input("Number of component tests", min_value=2, max_value=8, value=3, key="multi_panel_num_tests"))
+            multi_panel_trend = _mc2.selectbox(
+                "Trend Chart",
+                [
+                    "multi_trend (Multi-line panel trend)",
+                    "line (Standard line trend)",
+                    "none (No trend chart)"
+                ],
+                key="multi_panel_trend_select"
+            )
+            multi_panel_trend_val = multi_panel_trend.split(" ")[0]
+
+            with st.form("multi_panel_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
-                new_panel_name = col1.text_input("Panel Name (e.g., Cholesterol, Vitamin D Panel)")
-                new_panel_desc = col2.text_input("Description (optional)", placeholder="e.g., Lipid panel metrics")
+                multi_panel_name = col1.text_input("Panel Name (e.g., Cholesterol, Liver Function)")
+                multi_panel_desc = col2.text_input("Description (optional)")
 
+                st.markdown("#### Component Tests")
+                st.caption("Define each test that contributes to this panel's multi-bar chart.")
+                _mh = st.columns([2.5, 1, 1.5, 1, 1])
+                for _lbl, _col in zip(["**Test Name**", "**Unit**", "**Target**", "**Safe Min**", "**Safe Max**"], _mh):
+                    _col.markdown(_lbl)
+                mt_slots = []
+                for _i in range(num_panel_tests):
+                    c1, c2, c3, c4, c5 = st.columns([2.5, 1, 1.5, 1, 1])
+                    mt_name    = c1.text_input("Name",     key=f"mt_name_{_i}",    placeholder=f"Test {_i+1}", label_visibility="collapsed")
+                    mt_unit    = c2.text_input("Unit",     key=f"mt_unit_{_i}",    label_visibility="collapsed")
+                    mt_target  = c3.text_input("Target",   key=f"mt_target_{_i}",  label_visibility="collapsed")
+                    mt_smin    = c4.number_input("Min",    key=f"mt_smin_{_i}",    value=0.0, label_visibility="collapsed")
+                    mt_smax    = c5.number_input("Max",    key=f"mt_smax_{_i}",    value=0.0, label_visibility="collapsed")
+                    mt_slots.append((mt_name, mt_unit, mt_target, mt_smin, mt_smax))
+
+                st.divider()
                 if st.form_submit_button("💾 Save Panel", type="primary"):
-                    if new_panel_name.strip():
+                    valid_slots = [(n, u, t, mn, mx) for n, u, t, mn, mx in mt_slots if n.strip()]
+                    if multi_panel_name.strip() and len(valid_slots) >= 2:
                         crm.connect()
                         try:
                             crm.cursor.execute("""
                                 INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
                                 VALUES (?, ?, ?, ?)
-                            """, (new_panel_name.strip(), panel_chart_val, panel_trend_val, new_panel_desc.strip() or None))
+                            """, (multi_panel_name.strip(), "multi_bar_panel", multi_panel_trend_val, multi_panel_desc.strip() or None))
+                            new_gid = crm.cursor.lastrowid
+                            for (t_n, t_u, t_t, t_mn, t_mx) in valid_slots:
+                                crm.cursor.execute("""
+                                    INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """, (t_n.strip(), multi_panel_name.strip(), t_u.strip(), t_t.strip(), "multi_bar_panel", json.dumps({"safe_min": t_mn, "safe_max": t_mx}), new_gid))
                             crm.conn.commit()
-                            st.success(f"Panel '{new_panel_name}' added successfully!")
+                            st.success(f"Panel '{multi_panel_name}' created with {len(valid_slots)} tests!")
                             time.sleep(1)
                             st.rerun()
-                        except sqlite3.IntegrityError:
-                            st.error(f"Panel '{new_panel_name}' already exists.")
+                        except sqlite3.IntegrityError as e:
+                            st.error(f"Error: {e}")
                         finally:
                             crm.close()
                     else:
-                        st.warning("Panel Name is required.")
+                        if not multi_panel_name.strip():
+                            st.warning("Panel Name is required.")
+                        else:
+                            st.warning("At least 2 named tests are required.")
 
         st.divider()
 
@@ -979,84 +1131,44 @@ elif st.session_state.page == "Admin Console":
             else:
                 st.caption("No active test definitions found.")
 
-        with st.expander("➕ Add New Test to a Panel", expanded=False):
-            panel_options = [row['group_name'] for row in all_test_groups] if all_test_groups else []
-            if not panel_options:
-                st.warning("Create a Test Panel first before adding individual tests.")
+        _multi_groups = [row for row in all_test_groups if row['chart_type'] == 'multi_bar_panel']
+        with st.expander(f"➕ Add Test to Existing Multi-Test Panel ({len(_multi_groups)} available)", expanded=False):
+            st.caption("Adds an extra test to an existing multi-bar panel. Standalone panels (gauge, BMI, text, BP) cannot be extended here.")
+            if not _multi_groups:
+                st.info("No multi-test panels exist yet. Use 'Add Multi-Test Panel' above to create one first.")
             else:
-                selected_panel = st.selectbox("Select Panel", options=panel_options, key="new_test_panel_select")
+                atp_panel = st.selectbox("Select Panel", options=[row['group_name'] for row in _multi_groups], key="add_to_panel_select")
+                atp_inherited = next((row for row in _multi_groups if row['group_name'] == atp_panel), None)
+                atp_group_id  = atp_inherited['group_id']         if atp_inherited else None
+                atp_trend     = atp_inherited['trend_chart_type'] if atp_inherited else 'multi_trend'
+                st.info(f"Chart style: **multi_bar_panel** | Trend chart: **{atp_trend}** (inherited from panel — not editable here)")
 
-                # Look up the chart type inherited from the selected panel
-                inherited_panel = next((row for row in all_test_groups if row['group_name'] == selected_panel), None)
-                inherited_chart    = inherited_panel['chart_type']       if inherited_panel else 'gauge'
-                inherited_trend    = inherited_panel['trend_chart_type'] if inherited_panel else 'line'
-                inherited_group_id = inherited_panel['group_id']         if inherited_panel else None
-                st.info(f"Chart style: **{inherited_chart}** | Trend chart: **{inherited_trend}** (inherited from panel — not editable here)")
-
-                with st.form("new_test_form", clear_on_submit=True):
+                with st.form("add_to_panel_form", clear_on_submit=True):
                     col1, col2 = st.columns(2)
-                    new_t_name = col1.text_input("Specific Test Name (e.g., Vitamin D, Calcium)")
-                    new_t_unit = col2.text_input("Unit (e.g., nmol/L, mg/dL)")
-
-                    new_t_target = st.text_input("Target Display Text (e.g., '50-125' or '<5.0')")
-
-                    config_dict = {}
-
-                    if inherited_chart in ["gauge", "bp_range"]:
-                        st.markdown("#### Chart Boundaries")
-                        st.caption("Define the absolute edges of the chart, and the healthy 'Green' zone within it.")
-                        c1, c2, c3, c4 = st.columns(4)
-                        config_dict["axis_min"] = c1.number_input("Absolute Minimum (Left Edge)", value=0.0)
-                        config_dict["safe_min"] = c2.number_input("Healthy Min (Green Start)", value=0.0, help="Enter the lower bound of the healthy range for this test")
-                        config_dict["safe_max"] = c3.number_input("Healthy Max (Green End)", value=0.0, help="Enter the upper bound of the healthy range for this test")
-                        config_dict["axis_max"] = c4.number_input("Absolute Maximum (Right Edge)", value=100.0)
-
-                    elif inherited_chart == "multi_bar_panel":
-                        st.markdown("#### Healthy Range")
-                        st.caption("Bar panels auto-scale their outer edges, so they only need the healthy targets.")
-                        c1, c2 = st.columns(2)
-                        config_dict["safe_min"] = c1.number_input("Healthy Minimum", value=0.0, help="Enter the lower bound of the healthy range for this test")
-                        config_dict["safe_max"] = c2.number_input("Healthy Maximum", value=0.0, help="Enter the upper bound of the healthy range for this test")
-
-                    elif inherited_chart == "bmi_bullet":
-                        st.markdown("#### BMI Zone Configuration")
-                        st.caption("Define the chart axis range and up to 5 coloured zones, left to right. Each zone extends from the previous limit up to the one you enter.")
-                        _ba, _bb = st.columns(2)
-                        bmi_axis_min = _ba.number_input("Chart Minimum", value=10.0, key="bmi_axis_min")
-                        bmi_axis_max = _bb.number_input("Chart Maximum", value=40.0, key="bmi_axis_max")
-                        _COLOR_OPTS = ["blue", "green", "warning", "alert"]
-                        _zone_defaults = [(18.5, "blue"), (25.0, "green"), (30.0, "warning"), (40.0, "alert"), (0.0, "blue")]
-                        _zone_labels   = ["Underweight", "Healthy", "Overweight", "Obese", "Zone 5 (optional)"]
-                        _bmi_zones = []
-                        for _zi, (_zdef_lim, _zdef_col) in enumerate(_zone_defaults):
-                            _zc1, _zc2, _zc3 = st.columns([1.5, 2, 1.5])
-                            _zc1.markdown(f"**{_zone_labels[_zi]}**")
-                            _z_limit = _zc2.number_input("Upper Limit", value=_zdef_lim, min_value=0.0, key=f"bmi_limit_{_zi}", label_visibility="collapsed")
-                            _z_color = _zc3.selectbox("Color", _COLOR_OPTS, index=_COLOR_OPTS.index(_zdef_col), key=f"bmi_color_{_zi}", label_visibility="collapsed")
-                            if _z_limit > 0:
-                                _bmi_zones.append({"limit": _z_limit, "color": _z_color})
-                        config_dict = {"axis_min": bmi_axis_min, "axis_max": bmi_axis_max, "zones": _bmi_zones}
-
+                    atp_name   = col1.text_input("Test Name (e.g., HDL Cholesterol)")
+                    atp_unit   = col2.text_input("Unit (e.g., mmol/L)")
+                    atp_target = st.text_input("Target Display Text (e.g., '>1.0')")
+                    st.markdown("#### Healthy Range")
+                    st.caption("Bar panels auto-scale their outer edges, so they only need the healthy targets.")
+                    c1, c2 = st.columns(2)
+                    atp_smin = c1.number_input("Safe Minimum", value=0.0)
+                    atp_smax = c2.number_input("Safe Maximum", value=0.0)
                     st.divider()
-                    if st.form_submit_button("💾 Save Test Definition", type="primary"):
-                        if new_t_name.strip():
+                    if st.form_submit_button("💾 Save Test", type="primary"):
+                        if atp_name.strip():
                             crm.connect()
                             try:
                                 crm.cursor.execute("""
-                                    INSERT INTO test_definitions
-                                        (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
+                                    INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
                                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """, (
-                                    new_t_name.strip(), selected_panel, new_t_unit.strip(),
-                                    new_t_target.strip(), inherited_chart, json.dumps(config_dict),
-                                    inherited_group_id
-                                ))
+                                """, (atp_name.strip(), atp_panel, atp_unit.strip(), atp_target.strip(), "multi_bar_panel",
+                                      json.dumps({"safe_min": atp_smin, "safe_max": atp_smax}), atp_group_id))
                                 crm.conn.commit()
-                                st.success(f"Test '{new_t_name}' added to panel '{selected_panel}'!")
+                                st.success(f"Test '{atp_name}' added to panel '{atp_panel}'!")
                                 time.sleep(1)
                                 st.rerun()
                             except sqlite3.IntegrityError:
-                                st.error(f"Test '{new_t_name}' already exists.")
+                                st.error(f"Test '{atp_name}' already exists.")
                             finally:
                                 crm.close()
                         else:
