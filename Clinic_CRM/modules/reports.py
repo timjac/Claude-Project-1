@@ -376,8 +376,7 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
 
         # --- ROUTING ENGINE ---
         if chart_type == 'text_only':
-            # Format the text for the left-hand details column
-            display_val = f"{val} {unit}" if unit and unit != "N/A" else str(val)
+            display_val = str(val)
             display_target = "N/A"
             
             # Generate the large typographic image for the right-hand column
