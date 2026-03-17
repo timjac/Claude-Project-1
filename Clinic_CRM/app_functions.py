@@ -54,18 +54,16 @@ def get_patient_tests(pid, crm):
     crm.connect()
     # Indices map: 0:date, 1:name, 2:value, 3:unit, 4:group, 5:config, 6:note, 7:target, 8:chart, 9:result_id, 10:status...
     sql = """
-        SELECT 
-            e.encounter_date, 
-            tr.test_name, 
-            tr.test_value, 
-            td.unit, 
-            COALESCE(td.test_group, tr.test_name) as test_group, 
+        SELECT
+            e.encounter_date,
+            tr.test_name,
+            tr.test_value,
+            td.unit,
+            COALESCE(tg.group_name, td.test_group, tr.test_name) AS test_group,
             td.chart_config,
             tr.result_note,
-            td.default_target as display_target,
-            COALESCE(td.chart_type, 'gauge') as chart_type,
-            
-            -- New Lifecycle Fields
+            td.default_target AS display_target,
+            COALESCE(tg.chart_type, td.chart_type, 'gauge') AS chart_type,
             tr.result_id,
             tr.status,
             tr.test_taken_on,
@@ -73,10 +71,10 @@ def get_patient_tests(pid, crm):
             tr.test_taken_note,
             tr.result_received_on,
             tr.result_logged_by
-            
         FROM test_results tr
         JOIN encounters e ON tr.encounter_id = e.encounter_id
         LEFT JOIN test_definitions td ON tr.test_name = td.test_name
+        LEFT JOIN test_groups tg ON td.group_id = tg.group_id
         WHERE e.patient_id = ?
         ORDER BY tr.test_taken_on DESC
     """

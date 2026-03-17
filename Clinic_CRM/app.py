@@ -330,7 +330,18 @@ elif st.session_state.page == "Dashboard":
             with tab_tests:
                 # 1. Fetch Tests
                 crm.connect()
-                crm.cursor.execute("SELECT test_name, test_group, unit, chart_type FROM test_definitions WHERE is_active = 1 ORDER BY test_group, test_name")
+                crm.cursor.execute("""
+                    SELECT
+                        td.test_name,
+                        COALESCE(tg.group_name, td.test_group) AS test_group,
+                        td.unit,
+                        COALESCE(tg.chart_type, td.chart_type) AS chart_type,
+                        COALESCE(tg.description, '') AS description
+                    FROM test_definitions td
+                    LEFT JOIN test_groups tg ON td.group_id = tg.group_id
+                    WHERE td.is_active = 1
+                    ORDER BY test_group, test_name
+                """)
                 test_defs = crm.cursor.fetchall()
                 crm.close()
                 
@@ -345,6 +356,9 @@ elif st.session_state.page == "Dashboard":
                 with st.expander("➕ Add / Order New Test", expanded=False):
                     st.info("💡 **Tip:** Leave the 'Result Value' blank to save the test as Pending.")
                     selected_group = st.selectbox("Select Test Panel / Group", options=group_list)
+                    _group_desc = test_groups[selected_group][0]['description'] if test_groups.get(selected_group) and test_groups[selected_group][0]['description'] else None
+                    if _group_desc:
+                        st.caption(_group_desc)
                     enc_type_test = st.selectbox("Encounter Type (for the order)", ENCOUNTER_TYPES)
                     
                     with st.form(f"add_test_form"):
@@ -830,105 +844,88 @@ elif st.session_state.page == "Admin Console":
         st.subheader("🧪 Metadata & Test Dictionary")
         st.write("Define new clinical tests and specify how they render in the report builder.")
         
-        # 1. Fetch All Tests
+        # 1. Fetch All Tests (with group JOIN for denormalised display)
         crm.connect()
-        crm.cursor.execute("SELECT * FROM test_definitions ORDER BY test_group, test_name")
+        crm.cursor.execute("""
+            SELECT
+                td.id,
+                td.test_name,
+                COALESCE(tg.group_name, td.test_group) AS test_group,
+                td.unit,
+                td.default_target,
+                COALESCE(tg.chart_type, td.chart_type) AS chart_type,
+                COALESCE(tg.description, td.description) AS description,
+                td.chart_config,
+                td.is_active
+            FROM test_definitions td
+            LEFT JOIN test_groups tg ON td.group_id = tg.group_id
+            ORDER BY test_group, test_name
+        """)
         all_test_defs = crm.cursor.fetchall()
+
+        # 2. Fetch Test Groups for the panels section
+        crm.cursor.execute("SELECT group_id, group_name, chart_type, description FROM test_groups ORDER BY group_name")
+        all_test_groups = crm.cursor.fetchall()
         crm.close()
         
-        # Add New Test (Simplified)
-        with st.expander("➕ Add New Test Definition", expanded=False):
-            st.info("💡 **Tip:** To group multiple tests together into a single panel, simply give them the exact same 'Panel / Group Name'.")
-            
-            # The trigger for dynamic fields
-            selected_chart = st.selectbox(
-                "Chart Style", 
-                [
-                    "gauge (Standard dial chart)", 
-                    "multi_bar_panel (For grouping multiple tests together)", 
-                    "text_only (No chart, just numbers/text)",
-                    "bp_range (Blood Pressure style)", 
-                    "bmi_bullet (BMI specific)"
-                ]
+        # ---- SECTION A: Test Panels ----
+        st.markdown("#### 🗂️ Test Panels")
+
+        if all_test_groups:
+            df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Panel Name', 'Chart Style', 'Description'])
+            st.dataframe(
+                df_tg, hide_index=True, use_container_width=True,
+                column_config={"group_id": None}
             )
-            # Clean up the selection for the database
-            chart_val = selected_chart.split(" ")[0]
+        else:
+            st.caption("No test panels defined yet.")
 
-            with st.form("new_test_form", clear_on_submit=True):
+        with st.expander("➕ Add New Test Panel", expanded=False):
+            new_panel_chart = st.selectbox(
+                "Chart Style",
+                [
+                    "gauge (Standard dial chart)",
+                    "multi_bar_panel (For grouping multiple tests together)",
+                    "text_only (No chart, just numbers/text)",
+                    "bp_range (Blood Pressure style)",
+                    "bmi_bullet (BMI specific)"
+                ],
+                key="new_panel_chart_select"
+            )
+            panel_chart_val = new_panel_chart.split(" ")[0]
+
+            with st.form("new_panel_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
-                new_t_name = col1.text_input("Specific Test Name (e.g., Vitamin D, Calcium)")
-                new_t_group = col2.text_input("Panel / Group Name (e.g., Vitamin D, Metabolic Panel)")
-                
-                col3, col4 = st.columns(2)
-                new_t_unit = col3.text_input("Unit (e.g., nmol/L, mg/dL)")
-                new_t_target = col4.text_input("Target Display Text (e.g., '50-125' or '<5.0')")
-                
-                config_dict = {}
-                
-                # Only ask for boundaries if the chart actually needs them
-                if chart_val in ["gauge", "bp_range"]:
-                    st.markdown("#### Chart Boundaries")
-                    st.caption("Define the absolute edges of the chart, and the healthy 'Green' zone within it.")
-                    
-                    c1, c2, c3, c4 = st.columns(4)
-                    config_dict["axis_min"] = c1.number_input("Absolute Minimum (Left Edge)", value=0.0)
-                    config_dict["safe_min"] = c2.number_input("Healthy Min (Green Start)", value=0.0, help="Enter the lower bound of the healthy range for this test")
-                    config_dict["safe_max"] = c3.number_input("Healthy Max (Green End)", value=0.0, help="Enter the upper bound of the healthy range for this test")
-                    config_dict["axis_max"] = c4.number_input("Absolute Maximum (Right Edge)", value=100.0)
+                new_panel_name = col1.text_input("Panel Name (e.g., Cholesterol, Vitamin D Panel)")
+                new_panel_desc = col2.text_input("Description (optional)", placeholder="e.g., Lipid panel metrics")
 
-                elif chart_val == "multi_bar_panel":
-                    st.markdown("#### Healthy Range")
-                    st.caption("Bar panels auto-scale their outer edges, so they only need the healthy targets.")
-                    c1, c2 = st.columns(2)
-                    config_dict["safe_min"] = c1.number_input("Healthy Minimum", value=0.0, help="Enter the lower bound of the healthy range for this test")
-                    config_dict["safe_max"] = c2.number_input("Healthy Maximum", value=0.0, help="Enter the upper bound of the healthy range for this test")
-
-                elif chart_val == "bmi_bullet":
-                    # Load BMI zones from the existing test definition — single source of truth
-                    crm.connect()
-                    crm.cursor.execute("SELECT chart_config FROM test_definitions WHERE chart_type = 'bmi_bullet' LIMIT 1")
-                    _bmi_row = crm.cursor.fetchone()
-                    crm.close()
-                    if _bmi_row and _bmi_row['chart_config']:
-                        config_dict = json.loads(_bmi_row['chart_config'])
-                        st.success("Standard BMI zones loaded from test definitions.")
-                    else:
-                        config_dict = {
-                            "axis_min": 10.0, "axis_max": 40.0,
-                            "zones": [
-                                {"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"},
-                                {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}
-                            ]
-                        }
-                        st.info("Using default BMI zones (no existing BMI test definition found).")
-
-                st.divider()
-                if st.form_submit_button("💾 Save Test Definition", type="primary"):
-                    if new_t_name.strip() and new_t_group.strip():
+                if st.form_submit_button("💾 Save Panel", type="primary"):
+                    if new_panel_name.strip():
                         crm.connect()
                         try:
                             crm.cursor.execute("""
-                                INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            """, (new_t_name.strip(), new_t_group.strip(), new_t_unit.strip(), new_t_target.strip(), chart_val, json.dumps(config_dict)))
+                                INSERT INTO test_groups (group_name, chart_type, description)
+                                VALUES (?, ?, ?)
+                            """, (new_panel_name.strip(), panel_chart_val, new_panel_desc.strip() or None))
                             crm.conn.commit()
-                            st.success(f"Test '{new_t_name}' added successfully!")
+                            st.success(f"Panel '{new_panel_name}' added successfully!")
                             time.sleep(1)
                             st.rerun()
                         except sqlite3.IntegrityError:
-                            st.error(f"Test '{new_t_name}' already exists.")
+                            st.error(f"Panel '{new_panel_name}' already exists.")
                         finally:
                             crm.close()
                     else:
-                        st.warning("Test Name and Panel Name are required.")
-                        
+                        st.warning("Panel Name is required.")
+
         st.divider()
+
+        # ---- SECTION B: Individual Tests ----
         st.markdown("#### 📋 Active Test Library")
-        
+
         if all_test_defs:
             df_td = pd.DataFrame(all_test_defs, columns=['ID', 'Test Name', 'Group', 'Unit', 'Target', 'Chart', 'Desc', 'JSON', 'Active'])
-            
-            # Show visual table
+
             st.dataframe(
                 df_td, hide_index=True, use_container_width=True,
                 column_config={
@@ -936,13 +933,103 @@ elif st.session_state.page == "Admin Console":
                     "Active": st.column_config.CheckboxColumn("Active?")
                 }
             )
-            
-            # Form to toggle active status (Soft Delete)
+        else:
+            st.caption("No test definitions found.")
+            df_td = pd.DataFrame(columns=['ID', 'Test Name', 'Group', 'Unit', 'Target', 'Chart', 'Desc', 'JSON', 'Active'])
+
+        with st.expander("➕ Add New Test to a Panel", expanded=False):
+            panel_options = [row['group_name'] for row in all_test_groups] if all_test_groups else []
+            if not panel_options:
+                st.warning("Create a Test Panel first before adding individual tests.")
+            else:
+                selected_panel = st.selectbox("Select Panel", options=panel_options, key="new_test_panel_select")
+
+                # Look up the chart type inherited from the selected panel
+                inherited_chart = next(
+                    (row['chart_type'] for row in all_test_groups if row['group_name'] == selected_panel),
+                    'gauge'
+                )
+                inherited_group_id = next(
+                    (row['group_id'] for row in all_test_groups if row['group_name'] == selected_panel),
+                    None
+                )
+                st.info(f"Chart style: **{inherited_chart}** (inherited from panel — not editable here)")
+
+                with st.form("new_test_form", clear_on_submit=True):
+                    col1, col2 = st.columns(2)
+                    new_t_name = col1.text_input("Specific Test Name (e.g., Vitamin D, Calcium)")
+                    new_t_unit = col2.text_input("Unit (e.g., nmol/L, mg/dL)")
+
+                    new_t_target = st.text_input("Target Display Text (e.g., '50-125' or '<5.0')")
+
+                    config_dict = {}
+
+                    if inherited_chart in ["gauge", "bp_range"]:
+                        st.markdown("#### Chart Boundaries")
+                        st.caption("Define the absolute edges of the chart, and the healthy 'Green' zone within it.")
+                        c1, c2, c3, c4 = st.columns(4)
+                        config_dict["axis_min"] = c1.number_input("Absolute Minimum (Left Edge)", value=0.0)
+                        config_dict["safe_min"] = c2.number_input("Healthy Min (Green Start)", value=0.0, help="Enter the lower bound of the healthy range for this test")
+                        config_dict["safe_max"] = c3.number_input("Healthy Max (Green End)", value=0.0, help="Enter the upper bound of the healthy range for this test")
+                        config_dict["axis_max"] = c4.number_input("Absolute Maximum (Right Edge)", value=100.0)
+
+                    elif inherited_chart == "multi_bar_panel":
+                        st.markdown("#### Healthy Range")
+                        st.caption("Bar panels auto-scale their outer edges, so they only need the healthy targets.")
+                        c1, c2 = st.columns(2)
+                        config_dict["safe_min"] = c1.number_input("Healthy Minimum", value=0.0, help="Enter the lower bound of the healthy range for this test")
+                        config_dict["safe_max"] = c2.number_input("Healthy Maximum", value=0.0, help="Enter the upper bound of the healthy range for this test")
+
+                    elif inherited_chart == "bmi_bullet":
+                        crm.connect()
+                        crm.cursor.execute("SELECT chart_config FROM test_definitions WHERE chart_type = 'bmi_bullet' LIMIT 1")
+                        _bmi_row = crm.cursor.fetchone()
+                        crm.close()
+                        if _bmi_row and _bmi_row['chart_config']:
+                            config_dict = json.loads(_bmi_row['chart_config'])
+                            st.success("Standard BMI zones loaded from test definitions.")
+                        else:
+                            config_dict = {
+                                "axis_min": 10.0, "axis_max": 40.0,
+                                "zones": [
+                                    {"limit": 18.5, "color": "blue"}, {"limit": 25.0, "color": "green"},
+                                    {"limit": 30.0, "color": "warning"}, {"limit": 40.0, "color": "alert"}
+                                ]
+                            }
+                            st.info("Using default BMI zones (no existing BMI test definition found).")
+
+                    st.divider()
+                    if st.form_submit_button("💾 Save Test Definition", type="primary"):
+                        if new_t_name.strip():
+                            crm.connect()
+                            try:
+                                crm.cursor.execute("""
+                                    INSERT INTO test_definitions
+                                        (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """, (
+                                    new_t_name.strip(), selected_panel, new_t_unit.strip(),
+                                    new_t_target.strip(), inherited_chart, json.dumps(config_dict),
+                                    inherited_group_id
+                                ))
+                                crm.conn.commit()
+                                st.success(f"Test '{new_t_name}' added to panel '{selected_panel}'!")
+                                time.sleep(1)
+                                st.rerun()
+                            except sqlite3.IntegrityError:
+                                st.error(f"Test '{new_t_name}' already exists.")
+                            finally:
+                                crm.close()
+                        else:
+                            st.warning("Test Name is required.")
+
+        # Form to toggle active status (Soft Delete)
+        if not df_td.empty:
             with st.form("toggle_test_form"):
                 toggle_test_name = st.selectbox("Select Test to Archive/Restore", options=df_td['Test Name'].tolist())
                 current_state = df_td[df_td['Test Name'] == toggle_test_name]['Active'].iloc[0]
                 action_text = "Archive (Hide)" if current_state == 1 else "Restore (Activate)"
-                
+
                 if st.form_submit_button(f"🔄 {action_text} Selected Test"):
                     new_state = 0 if current_state == 1 else 1
                     crm.connect()

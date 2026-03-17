@@ -155,20 +155,38 @@ class ClinicCRM:
             );
         """)
 
+        # --- Table: Test Groups (first-class group entity) ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_groups (
+                group_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT UNIQUE NOT NULL,
+                chart_type TEXT NOT NULL DEFAULT 'gauge',
+                description TEXT
+            );
+        """)
+
         # --- Table: Test Definitions ---
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_definitions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 test_name TEXT UNIQUE NOT NULL,
-                test_group TEXT NOT NULL,      
+                test_group TEXT NOT NULL,
                 unit TEXT,
                 default_target TEXT,
                 chart_type TEXT DEFAULT 'gauge',
                 description TEXT,
-                chart_config TEXT,             
+                chart_config TEXT,
                 is_active INTEGER DEFAULT 1 -- NEW: Soft delete flag for Admin
             );
         """)
+
+        # Migration: add group_id FK column to existing databases that pre-date it
+        try:
+            self.cursor.execute(
+                "ALTER TABLE test_definitions ADD COLUMN group_id INTEGER REFERENCES test_groups(group_id)"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # --- Table: Report Log ---
         self.cursor.execute("""
@@ -285,10 +303,28 @@ class ClinicCRM:
         ]
 
         self.cursor.executemany("""
-            INSERT OR IGNORE INTO test_definitions 
+            INSERT OR IGNORE INTO test_definitions
             (test_name, test_group, unit, default_target, chart_type, description, chart_config)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, definitions)
+
+        # Populate test_groups from distinct (test_group, chart_type) pairs — idempotent
+        self.cursor.execute("""
+            INSERT OR IGNORE INTO test_groups (group_name, chart_type, description)
+            SELECT test_group, MAX(chart_type), MAX(description)
+            FROM test_definitions
+            WHERE test_group IS NOT NULL
+            GROUP BY test_group
+        """)
+
+        # Back-fill group_id on test_definitions rows — only touches un-linked rows
+        self.cursor.execute("""
+            UPDATE test_definitions
+            SET group_id = (
+                SELECT group_id FROM test_groups WHERE group_name = test_definitions.test_group
+            )
+            WHERE group_id IS NULL
+        """)
 
         # --- Populate Staff with Admin ---
         default_user = "admin"
