@@ -1683,6 +1683,14 @@ elif st.session_state.page == "Admin Console":
                     # Dummy history dates (newest first)
                     _prev_dates = ["2026-02-26", "2025-11-10", "2025-08-15", "2025-05-20", "2025-02-12"]
 
+                    # Per-series multiplier sequences — staggered so lines don't overlap
+                    _mults = [
+                        [1.00, 0.93, 1.09, 0.85, 1.05],
+                        [0.88, 1.08, 0.94, 1.13, 0.90],
+                        [1.12, 0.90, 1.06, 0.92, 1.10],
+                        [0.95, 1.15, 0.87, 1.04, 0.91],
+                    ]
+
                     # Trend config from current session state
                     _mk_key = ("nt_dot_show_markers" if _gt_prev == "dot"
                                else "nt_bar_show_markers" if _gt_prev == "bar"
@@ -1706,7 +1714,7 @@ elif st.session_state.page == "Admin Console":
                             "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
                             "axis_min": _ax_min, "axis_max": _ax_max, "zones": _zones_prev
                         })
-                        for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                        for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[0])):
                             _prev_tests.append((
                                 _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
                                 _prev_note if _i == 0 else "", "Target Range",
@@ -1717,7 +1725,7 @@ elif st.session_state.page == "Admin Console":
                     elif _gt_prev == "none":
                         _pv = float(st.session_state.get('nt_preview_val', 72.5))
                         _cfg_s = json.dumps({"graph_type": "none"})
-                        for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                        for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[0])):
                             _prev_tests.append((
                                 _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
                                 _prev_note if _i == 0 else "", "Target Range",
@@ -1749,12 +1757,13 @@ elif st.session_state.page == "Admin Console":
                             _pv = float(st.session_state.get(f'nt_preview_val_{_di}',
                                         _ax_min + (_ax_max - _ax_min) * (0.4 + _di * 0.2)))
                             _dcfg = _primary_cfg if _di == 0 else _secondary_cfg
-                            for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                            # Use "line" trend so the router doesn't need Systolic/Diastolic names
+                            for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_di % len(_mults)])):
                                 _prev_tests.append((
                                     _d, _dn, round(_pv * _m, 1), "units", _prev_grp, _dcfg,
                                     _prev_note if (_i == 0 and _di == 0) else "", "Target Range",
                                     "dot", _i*_nd + _di + 1, "Complete", _d, "Admin", "", _d, "Admin",
-                                    "bp_trend", _prev_trend_cfg
+                                    "line", _prev_trend_cfg
                                 ))
 
                     elif _gt_prev == "bar":
@@ -1772,7 +1781,7 @@ elif st.session_state.page == "Admin Console":
                                 "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
                                 "zones": _bt_zones
                             })
-                            for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                            for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_bi % len(_mults)])):
                                 _prev_tests.append((
                                     _d, _bt_name, round(_pv * _m, 1),
                                     st.session_state.get(f'{_bpfx}_unit', ''), _prev_grp, _bt_cfg,
