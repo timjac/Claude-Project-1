@@ -47,7 +47,7 @@ def generate_data():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    print("🐉 Seeding 103 Fantasy Patients into the database...")
+    print("Seeding 103 Fantasy Patients into the database...")
 
     # ==========================================
     # 1. GENERATE 102 REGULAR PATIENTS
@@ -197,7 +197,7 @@ def generate_data():
     # 2. GENERATE PATIENT 103 (THE GOLDEN RECORD)
     # ==========================================
     p103_id = 103
-    print("🌟 Building Patient 103 (Bilbo Baggins - The Golden Report Candidate)...")
+    print("Building Patient 103 (Bilbo Baggins - The Golden Report Candidate)...")
 
     p103_fields = [
         ("first_name", "Bilbo"),
@@ -285,7 +285,7 @@ def generate_data():
     # ==========================================
     # 3. GENERATE APPOINTMENTS (PAST & FUTURE)
     # ==========================================
-    print("📅 Scheduling past and future appointments...")
+    print("Scheduling past and future appointments...")
 
     for _ in range(50):
         random_pid = random.randint(1, 103)
@@ -313,7 +313,7 @@ def generate_data():
 
     conn.commit()
     conn.close()
-    print("✅ Done! Middle-earth database is fully populated.")
+    print("Done! Middle-earth database is fully populated.")
 
 
 if __name__ == "__main__":

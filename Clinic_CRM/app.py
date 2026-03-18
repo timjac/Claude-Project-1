@@ -333,9 +333,9 @@ elif st.session_state.page == "Dashboard":
                 crm.cursor.execute("""
                     SELECT
                         td.test_name,
-                        COALESCE(tg.group_name, td.test_group) AS test_group,
+                        tg.group_name AS test_group,
                         td.unit,
-                        COALESCE(tg.chart_type, td.chart_type) AS chart_type,
+                        tg.chart_type AS chart_type,
                         COALESCE(tg.description, '') AS description
                     FROM test_definitions td
                     LEFT JOIN test_groups tg ON td.group_id = tg.group_id
@@ -870,10 +870,10 @@ elif st.session_state.page == "Admin Console":
             SELECT
                 td.id,
                 td.test_name,
-                COALESCE(tg.group_name, td.test_group) AS test_group,
+                tg.group_name AS test_group,
                 td.unit,
                 td.default_target,
-                COALESCE(tg.chart_type, td.chart_type) AS chart_type,
+                tg.chart_type AS chart_type,
                 COALESCE(tg.description, td.description) AS description,
                 td.chart_config,
                 td.is_active
@@ -1320,9 +1320,8 @@ elif st.session_state.page == "Admin Console":
                             if _gt == "none":
                                 _cfg = {"graph_type": "none"}
                                 _trend = "line"
-                                _defs = [(nt_panel_name.strip(), nt_panel_name.strip(),
-                                          nt_unit.strip(), nt_target.strip(), "none",
-                                          json.dumps(_cfg), None)]
+                                _defs = [(nt_panel_name.strip(),
+                                          nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
 
                             elif _gt == "gauge":
                                 _n = st.session_state.get('nt_n_zones', 2)
@@ -1338,9 +1337,8 @@ elif st.session_state.page == "Admin Console":
                                     "zones": _zones
                                 }
                                 _trend = "line"
-                                _defs = [(nt_panel_name.strip(), nt_panel_name.strip(),
-                                          nt_unit.strip(), nt_target.strip(), "gauge",
-                                          json.dumps(_cfg), None)]
+                                _defs = [(nt_panel_name.strip(),
+                                          nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
 
                             elif _gt == "dot":
                                 _n = st.session_state.get('nt_n_zones', 2)
@@ -1377,8 +1375,8 @@ elif st.session_state.page == "Admin Console":
                                 for _di, dot in enumerate(_dots):
                                     _t_name = dot["test_name"].strip()
                                     _t_cfg  = json.dumps(_primary_cfg if _di == 0 else _secondary_cfg)
-                                    _defs.append((_t_name, nt_panel_name.strip(),
-                                                  nt_unit.strip(), nt_target.strip(), "dot", _t_cfg, None))
+                                    _defs.append((_t_name,
+                                                  nt_unit.strip(), nt_target.strip(), _t_cfg))
 
                             elif _gt == "bar":
                                 _trend = "multi_trend"
@@ -1396,10 +1394,10 @@ elif st.session_state.page == "Admin Console":
                                         "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
                                         "zones": _bt_zones
                                     }
-                                    _defs.append((_bt_name, nt_panel_name.strip(),
+                                    _defs.append((_bt_name,
                                                   st.session_state.get(f'{_bpfx}_unit', '').strip(),
                                                   st.session_state.get(f'{_bpfx}_target', '').strip(),
-                                                  "bar", json.dumps(_bt_cfg), None))
+                                                  json.dumps(_bt_cfg)))
 
                             # Write to DB
                             if not _defs:
@@ -1412,12 +1410,12 @@ elif st.session_state.page == "Admin Console":
                                         VALUES (?, ?, ?, ?)
                                     """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None))
                                     new_gid = crm.cursor.lastrowid
-                                    for (t_n, t_grp, t_u, t_t, t_ct, t_cfg, _) in _defs:
+                                    for (t_n, t_u, t_t, t_cfg) in _defs:
                                         crm.cursor.execute("""
                                             INSERT INTO test_definitions
-                                            (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
-                                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                                        """, (t_n, t_grp, t_u, t_t, t_ct, t_cfg, new_gid))
+                                            (test_name, unit, default_target, chart_config, group_id)
+                                            VALUES (?, ?, ?, ?, ?)
+                                        """, (t_n, t_u, t_t, t_cfg, new_gid))
                                     crm.conn.commit()
                                     st.success(f"'{nt_panel_name.strip()}' saved!")
                                     _nt_reset()

@@ -165,14 +165,12 @@ class ClinicCRM:
             CREATE TABLE IF NOT EXISTS test_definitions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 test_name TEXT UNIQUE NOT NULL,
-                test_group TEXT NOT NULL,
                 unit TEXT,
                 default_target TEXT,
-                chart_type TEXT DEFAULT 'gauge',
                 description TEXT,
                 chart_config TEXT,
                 is_active INTEGER DEFAULT 1,
-                group_id INTEGER REFERENCES test_groups(group_id)
+                group_id INTEGER NOT NULL REFERENCES test_groups(group_id)
             );
         """)
 
@@ -185,8 +183,8 @@ class ClinicCRM:
                 created_by TEXT DEFAULT 'Admin',
                 report_start_date TEXT,
                 report_end_date TEXT,
-                practitioner_statement TEXT, -- NEW
-                next_steps TEXT              -- NEW
+                practitioner_statement TEXT,
+                next_steps TEXT
             );
         """)
 
@@ -263,15 +261,35 @@ class ClinicCRM:
             header_roles
         )
 
-        # --- Populate Test Definitions (v2 chart_config format) ---
+        # --- Seed Test Groups (must be seeded before test_definitions) ---
+        # Tuples: (group_name, chart_type, trend_chart_type, description)
+        test_group_seeds = [
+            ("Weight",                  "none",  "line",        "Body mass"),
+            ("Height",                  "none",  "line",        "Stature"),
+            ("BMI",                     "gauge", "line",        "Body Mass Index"),
+            ("Blood Pressure",          "dot",   "bp_trend",    "Systolic and diastolic readings"),
+            ("Resting Heart Rate",      "gauge", "line",        "Pulse rate"),
+            ("Cholesterol",             "bar",   "multi_trend", "Lipid panel"),
+            ("Blood Glucose (Fasting)", "gauge", "line",        "Fasting blood sugar"),
+            ("O2 Saturation",           "gauge", "line",        "Oxygen saturation"),
+            ("Temperature",             "gauge", "line",        "Body temperature"),
+        ]
+        self.cursor.executemany("""
+            INSERT OR IGNORE INTO test_groups (group_name, chart_type, trend_chart_type, description)
+            VALUES (?, ?, ?, ?)
+        """, test_group_seeds)
+
+        # --- Seed Test Definitions ---
+        # Tuples: (test_name, group_name, unit, default_target, description, chart_config)
+        # group_name is used only to look up group_id via subquery — not stored on test_definitions.
         definitions = [
-            ("Weight", "Weight", "kg", "N/A", "none", "Body mass", json.dumps({
+            ("Weight", "Weight", "kg", "N/A", "Body mass", json.dumps({
                 "graph_type": "none"
             })),
-            ("Height", "Height", "cm", "N/A", "none", "Stature", json.dumps({
+            ("Height", "Height", "cm", "N/A", "Stature", json.dumps({
                 "graph_type": "none"
             })),
-            ("BMI", "BMI", "kg/m2", "18.5-24.9", "gauge", "Body Mass Index", json.dumps({
+            ("BMI", "BMI", "kg/m2", "18.5-24.9", "Body Mass Index", json.dumps({
                 "graph_type": "gauge", "gauge_style": "straight",
                 "axis_min": 10, "axis_max": 40,
                 "zones": [
@@ -281,7 +299,7 @@ class ClinicCRM:
                     {"from": 30.0, "to": 40.0, "color": "#FFCCCB", "label": "Obese"}
                 ]
             })),
-            ("Systolic", "Blood Pressure", "mmHg", "90-120", "dot", "Systolic Pressure", json.dumps({
+            ("Systolic", "Blood Pressure", "mmHg", "90-120", "Systolic Pressure", json.dumps({
                 "graph_type": "dot",
                 "axis_min": 40, "axis_max": 200,
                 "zones": [
@@ -294,7 +312,7 @@ class ClinicCRM:
                     {"test_name": "Diastolic", "fill_color": "#FFFFFF",  "stroke_color": "#003366", "label": "DIA"}
                 ]
             })),
-            ("Diastolic", "Blood Pressure", "mmHg", "60-80", "dot", "Diastolic Pressure", json.dumps({
+            ("Diastolic", "Blood Pressure", "mmHg", "60-80", "Diastolic Pressure", json.dumps({
                 "graph_type": "dot",
                 "dot_role": "secondary",
                 "axis_min": 40, "axis_max": 200,
@@ -304,7 +322,7 @@ class ClinicCRM:
                     {"from": 120, "to": 200, "color": "#FFCCCB", "label": "High"}
                 ]
             })),
-            ("Resting Heart Rate", "Resting Heart Rate", "bpm", "60-100", "gauge", "Pulse rate", json.dumps({
+            ("Resting Heart Rate", "Resting Heart Rate", "bpm", "60-100", "Pulse rate", json.dumps({
                 "graph_type": "gauge", "gauge_style": "curved",
                 "axis_min": 30, "axis_max": 150,
                 "zones": [
@@ -313,7 +331,7 @@ class ClinicCRM:
                     {"from": 100, "to": 150, "color": "#FFCCCB", "label": "High"}
                 ]
             })),
-            ("Total Cholesterol", "Cholesterol", "mmol/L", "<5.0", "bar", "Lipid metric", json.dumps({
+            ("Total Cholesterol", "Cholesterol", "mmol/L", "<5.0", "Total lipid level", json.dumps({
                 "graph_type": "bar",
                 "bar_color": "#003366", "bar_alert_color": "#DC3545",
                 "zones": [
@@ -321,7 +339,7 @@ class ClinicCRM:
                     {"from": 5.0, "to": 15.0, "color": "#FFCCCB", "label": "High"}
                 ]
             })),
-            ("HDL Cholesterol", "Cholesterol", "mmol/L", ">1.0", "bar", "Good cholesterol", json.dumps({
+            ("HDL Cholesterol", "Cholesterol", "mmol/L", ">1.0", "Good cholesterol", json.dumps({
                 "graph_type": "bar",
                 "bar_color": "#003366", "bar_alert_color": "#DC3545",
                 "zones": [
@@ -329,7 +347,7 @@ class ClinicCRM:
                     {"from": 1.0, "to": 15.0, "color": "#D4EDDA", "label": "Good"}
                 ]
             })),
-            ("LDL Cholesterol", "Cholesterol", "mmol/L", "<3.0", "bar", "Bad cholesterol", json.dumps({
+            ("LDL Cholesterol", "Cholesterol", "mmol/L", "<3.0", "Bad cholesterol", json.dumps({
                 "graph_type": "bar",
                 "bar_color": "#003366", "bar_alert_color": "#DC3545",
                 "zones": [
@@ -337,7 +355,7 @@ class ClinicCRM:
                     {"from": 3.0, "to": 15.0, "color": "#FFCCCB", "label": "High"}
                 ]
             })),
-            ("Blood Glucose (Fasting)", "Blood Glucose (Fasting)", "mmol/L", "4.0-5.9", "gauge", "Sugar level", json.dumps({
+            ("Blood Glucose (Fasting)", "Blood Glucose (Fasting)", "mmol/L", "4.0-5.9", "Fasting blood sugar", json.dumps({
                 "graph_type": "gauge", "gauge_style": "curved",
                 "axis_min": 0.0, "axis_max": 15.0,
                 "zones": [
@@ -346,7 +364,7 @@ class ClinicCRM:
                     {"from": 5.9, "to": 15.0, "color": "#FFCCCB", "label": "High"}
                 ]
             })),
-            ("O2 Saturation", "O2 Saturation", "%", ">95", "gauge", "Oxygen levels", json.dumps({
+            ("O2 Saturation", "O2 Saturation", "%", ">95", "Oxygen saturation", json.dumps({
                 "graph_type": "gauge", "gauge_style": "curved",
                 "axis_min": 80.0, "axis_max": 100.0,
                 "zones": [
@@ -354,7 +372,7 @@ class ClinicCRM:
                     {"from": 95.0, "to": 100.0, "color": "#D4EDDA", "label": "Normal"}
                 ]
             })),
-            ("Temperature", "Temperature", "C", "36.5-37.5", "gauge", "Body temp", json.dumps({
+            ("Temperature", "Temperature", "C", "36.5-37.5", "Body temperature", json.dumps({
                 "graph_type": "gauge", "gauge_style": "curved",
                 "axis_min": 34.0, "axis_max": 40.0,
                 "zones": [
@@ -367,35 +385,9 @@ class ClinicCRM:
 
         self.cursor.executemany("""
             INSERT OR IGNORE INTO test_definitions
-            (test_name, test_group, unit, default_target, chart_type, description, chart_config)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, definitions)
-
-        # Populate test_groups from distinct (test_group, chart_type) pairs — idempotent
-        self.cursor.execute("""
-            INSERT OR IGNORE INTO test_groups (group_name, chart_type, trend_chart_type, description)
-            SELECT
-                test_group,
-                MAX(chart_type),
-                CASE MAX(chart_type)
-                    WHEN 'dot' THEN 'bp_trend'
-                    WHEN 'bar' THEN 'multi_trend'
-                    ELSE 'line'
-                END,
-                MAX(description)
-            FROM test_definitions
-            WHERE test_group IS NOT NULL
-            GROUP BY test_group
-        """)
-
-        # Back-fill group_id on test_definitions rows — only touches un-linked rows
-        self.cursor.execute("""
-            UPDATE test_definitions
-            SET group_id = (
-                SELECT group_id FROM test_groups WHERE group_name = test_definitions.test_group
-            )
-            WHERE group_id IS NULL
-        """)
+            (test_name, unit, default_target, description, chart_config, group_id)
+            VALUES (?, ?, ?, ?, ?, (SELECT group_id FROM test_groups WHERE group_name = ?))
+        """, [(t_name, unit, target, desc, cfg, grp) for t_name, grp, unit, target, desc, cfg in definitions])
 
         # --- Populate Staff with Admin ---
         default_user = "admin"
