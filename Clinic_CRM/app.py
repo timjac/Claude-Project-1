@@ -127,7 +127,7 @@ if st.session_state.page == "Lobby":
     col_main, col_side = st.columns([1, 1], gap="large")
     
     with col_main:
-        _lobby_tab_dir, _lobby_tab_pending = st.tabs(["🔍 Patient Directory", "⏳ Pending Tests"])
+        _lobby_tab_dir, _lobby_tab_pending, _lobby_tab_rota = st.tabs(["🔍 Patient Directory", "⏳ Pending Tests", "📋 Staff Rota"])
 
         with _lobby_tab_dir:
             st.subheader("📋 Patient Directory")
@@ -170,6 +170,120 @@ if st.session_state.page == "Lobby":
                 st.caption("Click a patient in the directory to view their pending tests.")
             else:
                 st.info("No pending tests at this time.")
+
+        with _lobby_tab_rota:
+            st.subheader("📋 Staff Rota")
+            crm.connect()
+            crm.cursor.execute("SELECT username FROM staff ORDER BY username")
+            _lr_staff = [r['username'] for r in crm.cursor.fetchall()]
+            crm.close()
+
+            if not _lr_staff:
+                st.info("No staff accounts found.")
+            else:
+                _LR_OVERRIDE_TYPES = ["Annual Leave", "Training", "Sick Leave", "Appointment", "Other"]
+
+                # 14-day availability overview
+                _lr_from   = date.today()
+                _lr_to     = _lr_from + timedelta(days=13)
+                _lr_matrix = crm.get_all_staff_availability_range(_lr_staff, _lr_from, _lr_to)
+                _lr_dates  = [_lr_from + timedelta(days=i) for i in range(14)]
+
+                def _lr_fmt(av):
+                    if av['source'] in ('none', 'before_start') or av.get('is_working') is None:
+                        return '—'
+                    if av['source'] == 'override':
+                        if av['is_working']:
+                            hrs = f"{av['start_time']}–{av['end_time']}" if av.get('start_time') else 'All day'
+                            return f"Extra ({hrs})"
+                        return av.get('override_type', 'Override')
+                    return f"{av['start_time']}–{av['end_time']}" if av['is_working'] else 'Off'
+
+                def _lr_color(val):
+                    if val == '—':      return 'color: #cccccc'
+                    if val == 'Off':    return 'background-color: #f0f0f0; color: #999999'
+                    if any(t in val for t in ['Leave', 'Sick']): return 'background-color: #FFCCCB; color: #721c24'
+                    if 'Training' in val:    return 'background-color: #FFF3CD; color: #856404'
+                    if 'Appointment' in val: return 'background-color: #D1ECF1; color: #0c5460'
+                    if 'Extra' in val:       return 'background-color: #E2F0FB; color: #0a4a7a; font-style: italic'
+                    return 'background-color: #D4EDDA; color: #155724'
+
+                _lr_grid = {
+                    _d.strftime('%a %d %b'): {
+                        _u: _lr_fmt(_lr_matrix[_u].get(str(_d), {'source': 'none', 'is_working': None}))
+                        for _u in _lr_staff
+                    }
+                    for _d in _lr_dates
+                }
+                _lr_grid_df = pd.DataFrame.from_dict(_lr_grid, orient='index', columns=_lr_staff)
+                st.dataframe(_lr_grid_df.style.map(_lr_color), use_container_width=True, height=530)
+
+                # Conflict detection
+                _lr_sched = get_clinic_schedule(crm, _lr_from, _lr_to)
+                _lr_conflicts = []
+                for _lca in _lr_sched:
+                    _lp = _lca['Provider']
+                    if _lp in _lr_matrix:
+                        _lcav = _lr_matrix[_lp].get(_lca['Date'], {})
+                        if _lcav.get('is_working') is False or (
+                            _lcav.get('source') == 'override' and not _lcav.get('is_working')
+                        ):
+                            _lr_conflicts.append(
+                                f"**{_lca['Date']}** {_lca['Time']} · {_lp} · {_lca['Patient']} — "
+                                f"{_lcav.get('override_type', 'Day off per rota')}")
+                if _lr_conflicts:
+                    st.error(f"⚠️ {len(_lr_conflicts)} scheduling conflict{'s' if len(_lr_conflicts) != 1 else ''} detected:")
+                    for _lcf in _lr_conflicts[:8]:
+                        st.markdown(f"- {_lcf}")
+                    if len(_lr_conflicts) > 8:
+                        st.caption(f"...and {len(_lr_conflicts) - 8} more.")
+                else:
+                    st.success("✅ No conflicts.")
+
+                st.divider()
+                st.markdown("**Availability Overrides**")
+                _lr_sel = st.selectbox("Staff Member", _lr_staff, key="lr_rota_staff_select")
+                if _lr_sel:
+                    with st.expander("➕ Add Override", expanded=False):
+                        with st.form(f"lr_override_{_lr_sel}", clear_on_submit=True):
+                            _lo_c1, _lo_c2, _lo_c3 = st.columns(3)
+                            _lo_date  = _lo_c1.date_input("Date")
+                            _lo_type  = _lo_c2.selectbox("Type", _LR_OVERRIDE_TYPES)
+                            _lo_avail = _lo_c3.checkbox("Available (extra shift)", value=False)
+                            _lo_c4, _lo_c5, _lo_c6 = st.columns(3)
+                            _lo_full  = _lo_c4.checkbox("Full day", value=True)
+                            _lo_start = _lo_c5.time_input("Start", value=datetime.strptime("09:00", "%H:%M").time())
+                            _lo_end   = _lo_c6.time_input("End",   value=datetime.strptime("17:00", "%H:%M").time())
+                            st.caption("Start/End only used when 'Full day' is unchecked.")
+                            _lo_notes = st.text_input("Notes (optional)")
+                            if st.form_submit_button("Add Override", type="primary"):
+                                crm.add_availability_override(
+                                    _lr_sel, str(_lo_date), _lo_type, int(_lo_avail),
+                                    None if _lo_full else _lo_start.strftime("%H:%M"),
+                                    None if _lo_full else _lo_end.strftime("%H:%M"),
+                                    _lo_notes.strip() or None, st.session_state['username'])
+                                st.success("Override added."); st.rerun()
+
+                    _lr_ovs = crm.get_availability_overrides(_lr_sel)
+                    if _lr_ovs:
+                        _lr_ov_tbl = pd.DataFrame(_lr_ovs)[
+                            ['override_id', 'override_date', 'override_type', 'start_time', 'end_time', 'notes']
+                        ].rename(columns={'override_id': 'ID', 'override_date': 'Date', 'override_type': 'Type',
+                                          'start_time': 'From', 'end_time': 'To', 'notes': 'Notes'})
+                        _lr_ov_tbl['From'] = _lr_ov_tbl['From'].fillna('Full day')
+                        _lr_ov_tbl['To']   = _lr_ov_tbl['To'].fillna('')
+                        st.dataframe(_lr_ov_tbl, hide_index=True, use_container_width=True,
+                                     column_config={"ID": None})
+                        _lr_del_opts = {r['override_id']: f"{r['override_date']} — {r['override_type']}"
+                                        for r in _lr_ovs}
+                        _lr_del_id = st.selectbox("Remove override?", options=list(_lr_del_opts.keys()),
+                                                   format_func=lambda x: _lr_del_opts[x],
+                                                   key=f"lr_del_sel_{_lr_sel}")
+                        if st.button("🗑️ Delete Selected Override", key=f"lr_del_btn_{_lr_sel}"):
+                            crm.delete_availability_override(_lr_del_id)
+                            st.success("Override removed."); st.rerun()
+                    else:
+                        st.info("No overrides set for this staff member.")
 
     with col_side:
         c_title, c_filter = st.columns([1.5, 1])
@@ -741,7 +855,7 @@ elif st.session_state.page == "Admin Console":
     st.divider()
     
     # --- ADDED TAB 3 FOR TEST DICTIONARY ---
-    tab_staff, tab_report_design, tab_tests, tab_rota = st.tabs(["👥 Staff Management", "🎨 Report Designer", "🧪 Test Dictionary", "📋 Staff Rota"])
+    tab_staff, tab_report_design, tab_tests = st.tabs(["👥 Staff Management", "🎨 Report Designer", "🧪 Test Dictionary"])
     
     # -----------------------------------------------------
     # TAB 1: STAFF MANAGEMENT
@@ -856,6 +970,91 @@ elif st.session_state.page == "Admin Console":
                                     st.rerun()
                             else:
                                 _rc[4].caption("—")
+
+        # ---- SHIFT PATTERNS ----
+        st.divider()
+        st.markdown("**🗓️ Shift Patterns**")
+        _sm_names = [r['Username'] for r in df_staff.to_dict('records')] if staff_list else []
+        if _sm_names:
+            _SM_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            _sm_sel = st.selectbox("Configure pattern for", _sm_names, key="sm_pattern_staff")
+            if _sm_sel:
+                _sm_pat, _sm_days = crm.get_shift_pattern(_sm_sel)
+
+                # Current pattern summary
+                if _sm_pat:
+                    _sm_dmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
+                    _sm_wks  = 1 if _sm_pat['pattern_type'] == 'weekly' else 2
+                    _sm_sum  = []
+                    for _wk in range(1, _sm_wks + 1):
+                        for _d in range(7):
+                            _sd = _sm_dmap.get((_wk, _d))
+                            _sm_sum.append({"Week": _wk, "Day": _SM_DAY_NAMES[_d],
+                                            "Hours": f"{_sd['start_time']} – {_sd['end_time']}" if _sd else "Day off"})
+                    _sm_df = pd.DataFrame(_sm_sum)
+                    if _sm_wks == 1:
+                        _sm_df = _sm_df.drop(columns=["Week"])
+                    st.caption(f"Current: **{_sm_pat['pattern_type'].title()}** — starts {_sm_pat['anchor_date']}")
+                    st.dataframe(_sm_df, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No shift pattern set for this staff member.")
+
+                with st.expander("✏️ Set / Change Shift Pattern", expanded=not _sm_pat):
+                    _sm_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
+                                        key=f"sm_edit_type_{_sm_sel}")
+                    _sm_anchor_def = date.fromisoformat(_sm_pat['anchor_date']) if _sm_pat else date.today()
+                    _sm_anchor = st.date_input("Pattern Start Date (must be a Monday)",
+                                               value=_sm_anchor_def, key=f"sm_anchor_{_sm_sel}")
+                    if _sm_anchor.weekday() != 0:
+                        st.warning("⚠️ The start date must be a Monday.")
+                    else:
+                        _sm_nwks = 1 if _sm_type == "Weekly" else 2
+                        _sm_exmap = {}
+                        if _sm_pat and _sm_pat['pattern_type'] == _sm_type.lower():
+                            _sm_exmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
+                        _sm_dst = {}
+
+                        def _sm_render_week(wk):
+                            _h = st.columns([2, 1, 1.5, 1.5])
+                            for _l, _c in zip(["Day", "On", "Start", "End"], _h):
+                                _c.caption(_l)
+                            for _d in range(7):
+                                _ex = _sm_exmap.get((wk, _d))
+                                _dw = bool(_ex)
+                                _ds = datetime.strptime(_ex['start_time'] if _ex and _ex['start_time'] else "09:00", "%H:%M").time()
+                                _de = datetime.strptime(_ex['end_time']   if _ex and _ex['end_time']   else "17:00", "%H:%M").time()
+                                c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
+                                c1.write(_SM_DAY_NAMES[_d])
+                                _on = c2.checkbox("", value=_dw, key=f"sm_w{wk}_d{_d}_{_sm_sel}",
+                                                  label_visibility="collapsed")
+                                if _on:
+                                    _s = c3.time_input("", value=_ds, key=f"sm_w{wk}_d{_d}_s_{_sm_sel}",
+                                                       label_visibility="collapsed", step=900)
+                                    _e = c4.time_input("", value=_de, key=f"sm_w{wk}_d{_d}_e_{_sm_sel}",
+                                                       label_visibility="collapsed", step=900)
+                                    _sm_dst[(wk, _d)] = (_s, _e)
+
+                        if _sm_nwks == 2:
+                            _sc1, _sc2 = st.columns(2)
+                            with _sc1:
+                                st.markdown("**— Week 1 —**")
+                                _sm_render_week(1)
+                            with _sc2:
+                                st.markdown("**— Week 2 —**")
+                                _sm_render_week(2)
+                        else:
+                            _sm_render_week(1)
+
+                        if st.button("💾 Save Shift Pattern", type="primary", key=f"sm_save_{_sm_sel}"):
+                            crm.save_shift_pattern(
+                                _sm_sel, _sm_type.lower(), str(_sm_anchor),
+                                [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
+                                 for (wk, d), (s, e) in _sm_dst.items()],
+                                st.session_state['username'])
+                            st.success(f"✅ Shift pattern saved for {_sm_sel}.")
+                            st.rerun()
+        else:
+            st.info("Add staff members above to configure shift patterns.")
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
@@ -2521,223 +2720,3 @@ elif st.session_state.page == "Admin Console":
             else:
                 st.caption("No archived tests.")
 
-    # -----------------------------------------------------
-    # TAB 4: STAFF ROTA
-    # -----------------------------------------------------
-    with tab_rota:
-        st.subheader("📋 Staff Rota")
-        st.write("Define recurring shift patterns for each staff member and record availability exceptions.")
-
-        crm.connect()
-        crm.cursor.execute("SELECT username FROM staff ORDER BY username")
-        _all_staff = [r['username'] for r in crm.cursor.fetchall()]
-        crm.close()
-
-        if not _all_staff:
-            st.info("No staff accounts found.")
-        else:
-            _DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            _OVERRIDE_TYPES = ["Annual Leave", "Training", "Sick Leave", "Appointment", "Other"]
-
-            # ---- 14-DAY AVAILABILITY OVERVIEW ----
-            _ov_from = date.today()
-            _ov_to   = _ov_from + timedelta(days=13)
-            _ov_matrix = crm.get_all_staff_availability_range(_all_staff, _ov_from, _ov_to)
-            _ov_dates  = [_ov_from + timedelta(days=i) for i in range(14)]
-
-            def _fmt_rota_cell(av):
-                if av['source'] in ('none', 'before_start') or av.get('is_working') is None:
-                    return '—'
-                if av['source'] == 'override':
-                    if av['is_working']:
-                        hrs = f"{av['start_time']}–{av['end_time']}" if av.get('start_time') else 'All day'
-                        return f"Extra ({hrs})"
-                    return av.get('override_type', 'Override')
-                return f"{av['start_time']}–{av['end_time']}" if av['is_working'] else 'Off'
-
-            def _color_rota_cell(val):
-                if val == '—':        return 'color: #cccccc'
-                if val == 'Off':      return 'background-color: #f0f0f0; color: #999999'
-                if any(t in val for t in ['Leave', 'Sick']): return 'background-color: #FFCCCB; color: #721c24'
-                if 'Training' in val: return 'background-color: #FFF3CD; color: #856404'
-                if 'Appointment' in val: return 'background-color: #D1ECF1; color: #0c5460'
-                if 'Extra' in val:    return 'background-color: #E2F0FB; color: #0a4a7a; font-style: italic'
-                return 'background-color: #D4EDDA; color: #155724'   # working hours
-
-            _ov_rows = {
-                _d.strftime('%a %d %b'): {
-                    _u: _fmt_rota_cell(_ov_matrix[_u].get(str(_d), {'source': 'none', 'is_working': None}))
-                    for _u in _all_staff
-                }
-                for _d in _ov_dates
-            }
-            _ov_df = pd.DataFrame.from_dict(_ov_rows, orient='index', columns=_all_staff)
-
-            with st.expander("📊 14-Day Availability Overview", expanded=True):
-                st.dataframe(_ov_df.style.map(_color_rota_cell), use_container_width=True, height=530)
-
-                # Conflict detection — appointments booked on a provider's unavailable days
-                _all_sched = get_clinic_schedule(crm, _ov_from, _ov_to)
-                _conflicts = []
-                for _ca in _all_sched:
-                    _prov = _ca['Provider']
-                    if _prov in _ov_matrix:
-                        _cav = _ov_matrix[_prov].get(_ca['Date'], {})
-                        if _cav.get('is_working') is False or (
-                            _cav.get('source') == 'override' and not _cav.get('is_working')
-                        ):
-                            _reason = _cav.get('override_type', 'Day off per rota')
-                            _conflicts.append(
-                                f"**{_ca['Date']}** {_ca['Time']} · {_prov} · {_ca['Patient']} — {_reason}")
-                if _conflicts:
-                    st.error(f"⚠️ {len(_conflicts)} scheduling conflict{'s' if len(_conflicts) != 1 else ''} detected:")
-                    for _cf in _conflicts[:8]:
-                        st.markdown(f"- {_cf}")
-                    if len(_conflicts) > 8:
-                        st.caption(f"...and {len(_conflicts) - 8} more.")
-                else:
-                    st.success("✅ No conflicts — all appointments fall within rostered hours.")
-
-            st.divider()
-            _rota_staff = st.selectbox("Staff Member", _all_staff, key="rota_staff_select")
-
-            if _rota_staff:
-                _pattern, _shift_days = crm.get_shift_pattern(_rota_staff)
-
-                # ---- CURRENT PATTERN SUMMARY ----
-                st.divider()
-                st.markdown("**Current Shift Pattern**")
-                if _pattern:
-                    _day_map = {(d['week_number'], d['day_of_week']): d for d in _shift_days}
-                    _weeks = 1 if _pattern['pattern_type'] == 'weekly' else 2
-                    _summary_rows = []
-                    for _wk in range(1, _weeks + 1):
-                        for _d in range(7):
-                            _sd = _day_map.get((_wk, _d))
-                            _row = {"Week": _wk, "Day": _DAY_NAMES[_d],
-                                    "Hours": f"{_sd['start_time']} – {_sd['end_time']}" if _sd else "Day off"}
-                            _summary_rows.append(_row)
-                    _sum_df = pd.DataFrame(_summary_rows)
-                    if _weeks == 1:
-                        _sum_df = _sum_df.drop(columns=["Week"])
-                    st.caption(f"Pattern: **{_pattern['pattern_type'].title()}** — starts {_pattern['anchor_date']}")
-                    st.dataframe(_sum_df, hide_index=True, use_container_width=True)
-                else:
-                    st.info("No shift pattern set for this staff member.")
-
-                # ---- PATTERN EDITOR ----
-                with st.expander("✏️ Set / Change Shift Pattern", expanded=not _pattern):
-                    _edit_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
-                                         key=f"rota_edit_type_{_rota_staff}")
-                    _anchor_default = date.fromisoformat(_pattern['anchor_date']) if _pattern else date.today()
-                    _edit_anchor = st.date_input("Pattern Start Date (must be a Monday)",
-                                                  value=_anchor_default, key=f"rota_anchor_{_rota_staff}")
-
-                    if _edit_anchor.weekday() != 0:
-                        st.warning("⚠️ The start date must be a Monday. Please select a Monday.")
-                    else:
-                        weeks_to_show = 1 if _edit_type == "Weekly" else 2
-                        # Pre-fill from existing pattern if type matches
-                        _existing_day_map = {}
-                        if _pattern and _pattern['pattern_type'] == _edit_type.lower():
-                            _existing_day_map = {(d['week_number'], d['day_of_week']): d for d in _shift_days}
-
-                        _day_states = {}
-
-                        def _render_week_days(wk):
-                            _hc = st.columns([2, 1, 1.5, 1.5])
-                            for _lbl, _hcol in zip(["Day", "On", "Start", "End"], _hc):
-                                _hcol.caption(_lbl)
-                            for _d in range(7):
-                                _ex = _existing_day_map.get((wk, _d))
-                                _dw = bool(_ex)
-                                _ds = datetime.strptime(_ex['start_time'] if _ex and _ex['start_time'] else "09:00", "%H:%M").time()
-                                _de = datetime.strptime(_ex['end_time'] if _ex and _ex['end_time'] else "17:00", "%H:%M").time()
-                                c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
-                                c1.write(_DAY_NAMES[_d])
-                                _on = c2.checkbox("", value=_dw,
-                                                  key=f"rota_w{wk}_d{_d}_{_rota_staff}",
-                                                  label_visibility="collapsed")
-                                if _on:
-                                    _s = c3.time_input("", value=_ds,
-                                                       key=f"rota_w{wk}_d{_d}_s_{_rota_staff}",
-                                                       label_visibility="collapsed", step=900)
-                                    _e = c4.time_input("", value=_de,
-                                                       key=f"rota_w{wk}_d{_d}_e_{_rota_staff}",
-                                                       label_visibility="collapsed", step=900)
-                                    _day_states[(wk, _d)] = (_s, _e)
-
-                        if weeks_to_show == 2:
-                            _fw_c1, _fw_c2 = st.columns(2)
-                            with _fw_c1:
-                                st.markdown("**— Week 1 —**")
-                                _render_week_days(1)
-                            with _fw_c2:
-                                st.markdown("**— Week 2 —**")
-                                _render_week_days(2)
-                        else:
-                            _render_week_days(1)
-
-                        if st.button("💾 Save Shift Pattern", type="primary", key=f"rota_save_{_rota_staff}"):
-                            _days_data = [
-                                (wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
-                                for (wk, d), (s, e) in _day_states.items()
-                            ]
-                            crm.save_shift_pattern(_rota_staff, _edit_type.lower(), str(_edit_anchor),
-                                                   _days_data, st.session_state['username'])
-                            st.success(f"✅ Shift pattern saved for {_rota_staff}.")
-                            st.rerun()
-
-                # ---- AVAILABILITY OVERRIDES ----
-                st.divider()
-                st.markdown("**Availability Overrides**")
-                st.caption("Use overrides to record leave, training, sickness, or any exception to the regular pattern.")
-
-                with st.expander("➕ Add Override", expanded=False):
-                    with st.form(f"override_form_{_rota_staff}", clear_on_submit=True):
-                        _ov_c1, _ov_c2, _ov_c3 = st.columns(3)
-                        _ov_date = _ov_c1.date_input("Date")
-                        _ov_type = _ov_c2.selectbox("Type", _OVERRIDE_TYPES)
-                        _ov_avail = _ov_c3.checkbox("Available (extra shift)", value=False,
-                                                     help="Check this only if the override adds availability, e.g. an extra shift. Leave unchecked for leave/sickness.")
-                        _ov_c4, _ov_c5, _ov_c6 = st.columns(3)
-                        _ov_full_day = _ov_c4.checkbox("Full day", value=True)
-                        _ov_start = _ov_c5.time_input("Start Time",
-                                                       value=datetime.strptime("09:00", "%H:%M").time())
-                        _ov_end = _ov_c6.time_input("End Time",
-                                                     value=datetime.strptime("17:00", "%H:%M").time())
-                        st.caption("Start/End times are only used when 'Full day' is unchecked.")
-                        _ov_notes = st.text_input("Notes (optional)")
-                        if st.form_submit_button("Add Override", type="primary"):
-                            crm.add_availability_override(
-                                _rota_staff, str(_ov_date), _ov_type, int(_ov_avail),
-                                None if _ov_full_day else _ov_start.strftime("%H:%M"),
-                                None if _ov_full_day else _ov_end.strftime("%H:%M"),
-                                _ov_notes.strip() or None, st.session_state['username']
-                            )
-                            st.success("Override added.")
-                            st.rerun()
-
-                _overrides = crm.get_availability_overrides(_rota_staff)
-                if _overrides:
-                    _ov_df = pd.DataFrame(_overrides)[
-                        ['override_id', 'override_date', 'override_type', 'start_time', 'end_time', 'notes']
-                    ].rename(columns={
-                        'override_id': 'ID', 'override_date': 'Date', 'override_type': 'Type',
-                        'start_time': 'From', 'end_time': 'To', 'notes': 'Notes'
-                    })
-                    _ov_df['From'] = _ov_df['From'].fillna('Full day')
-                    _ov_df['To'] = _ov_df['To'].fillna('')
-                    st.dataframe(_ov_df, hide_index=True, use_container_width=True,
-                                 column_config={"ID": None})
-                    _del_options = {r['override_id']: f"{r['override_date']} — {r['override_type']}"
-                                    for r in _overrides}
-                    _del_id = st.selectbox("Remove override?", options=list(_del_options.keys()),
-                                           format_func=lambda x: _del_options[x],
-                                           key=f"del_ov_select_{_rota_staff}")
-                    if st.button("🗑️ Delete Selected Override", key=f"del_ov_btn_{_rota_staff}"):
-                        crm.delete_availability_override(_del_id)
-                        st.success("Override removed.")
-                        st.rerun()
-                else:
-                    st.info("No overrides set for this staff member.")
