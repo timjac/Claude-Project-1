@@ -1083,7 +1083,7 @@ elif st.session_state.page == "Admin Console":
                     options=["gauge", "dot", "bar", "none"],
                     format_func=lambda x: {
                         "gauge": "Dial / Gauge — single value on a curved or straight scale",
-                        "dot":   "Dot on a line — one or two values as markers (e.g. Blood Pressure)",
+                        "dot":   "Dot on a line — 1 or 2 values as markers (e.g. Blood Pressure)",
                         "bar":   "Horizontal bars — multiple related values side by side",
                         "none":  "Numbers only — display value as large text, no chart",
                     }[x],
@@ -1181,7 +1181,7 @@ elif st.session_state.page == "Admin Console":
                                     del st.session_state[_k]
                             st.session_state['nt_n_dots'] = nd - 1
                             st.rerun()
-                    if nd < 4 and st.button("+ Add Dot", key="nt_add_dot"):
+                    if nd < 2 and st.button("+ Add Dot", key="nt_add_dot"):
                         st.session_state['nt_n_dots'] = nd + 1
                         st.rerun()
 
@@ -1206,8 +1206,8 @@ elif st.session_state.page == "Admin Console":
                     _nt_d_min = _nt_dz[0]['from'] if _nt_dz else 0.0
                     _nt_d_max = _nt_dz[-1]['to']  if _nt_dz else 200.0
                     st.markdown("**Preview values**")
-                    _dpv_cols = st.columns(min(nd, 4))
-                    for _di in range(min(nd, 4)):
+                    _dpv_cols = st.columns(min(nd, 2))
+                    for _di in range(min(nd, 2)):
                         if f'nt_preview_val_{_di}' not in st.session_state:
                             st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
                         _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
@@ -1896,7 +1896,7 @@ elif st.session_state.page == "Admin Console":
                                             del st.session_state[_k]
                                     st.session_state['et_n_dots'] = _et_nd - 1
                                     st.rerun()
-                            if _et_nd < 4 and st.button("+ Add Dot", key="et_add_dot"):
+                            if _et_nd < 2 and st.button("+ Add Dot", key="et_add_dot"):
                                 st.session_state['et_n_dots'] = _et_nd + 1
                                 st.rerun()
                             if 'et_axis_start' not in st.session_state:
@@ -1918,8 +1918,8 @@ elif st.session_state.page == "Admin Console":
                             _etd_min = _etd_zones[0]['from'] if _etd_zones else 0.0
                             _etd_max = _etd_zones[-1]['to']  if _etd_zones else 200.0
                             st.markdown("**Preview values**")
-                            _etdpv_cols = st.columns(min(_et_nd, 4))
-                            for _di in range(min(_et_nd, 4)):
+                            _etdpv_cols = st.columns(min(_et_nd, 2))
+                            for _di in range(min(_et_nd, 2)):
                                 if f'et_preview_val_{_di}' not in st.session_state:
                                     st.session_state[f'et_preview_val_{_di}'] = _etd_min + (_etd_max - _etd_min) * (0.4 + _di * 0.2)
                                 _dlbl = st.session_state.get(f'et_dot_name_{_di}') or f"Dot {_di+1}"
