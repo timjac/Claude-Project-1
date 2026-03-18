@@ -1669,7 +1669,7 @@ elif st.session_state.page == "Admin Console":
                                 finally:
                                     crm.close()
 
-            # ---- RIGHT COLUMN: Live Preview ----
+            # ---- RIGHT COLUMN: Live Preview (full PDF banner) ----
             with nt_right:
                 st.markdown("#### Live Preview")
                 try:
@@ -1678,77 +1678,139 @@ elif st.session_state.page == "Admin Console":
                     _zones_prev = _zbuild('nt', _n_prev)
                     _ax_min = _zones_prev[0]['from'] if _zones_prev else 0.0
                     _ax_max = _zones_prev[-1]['to']  if _zones_prev else 100.0
+                    _midpoint = _ax_min + (_ax_max - _ax_min) * 0.55
 
-                    if _gt_prev == "none":
-                        _prev_img = render_text(st.session_state.get('nt_preview_val', 72.5), "")
-                        if _prev_img:
-                            st.image(_prev_img, use_container_width=True)
+                    # Dummy history dates (newest first)
+                    _prev_dates = ["2026-02-26", "2025-11-10", "2025-08-15", "2025-05-20", "2025-02-12"]
 
-                    elif _gt_prev == "gauge":
-                        _mock_val = float(st.session_state.get('nt_preview_val',
-                                          _ax_min + (_ax_max - _ax_min) * 0.55))
-                        _prev_cfg = {
+                    # Trend config from current session state
+                    _mk_key = ("nt_dot_show_markers" if _gt_prev == "dot"
+                               else "nt_bar_show_markers" if _gt_prev == "bar"
+                               else "nt_show_markers")
+                    _prev_trend_cfg = json.dumps({
+                        "line_colour":  st.session_state.get("nt_trend_colour", "#003366"),
+                        "line_style":   "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
+                        "show_markers": bool(st.session_state.get(_mk_key, False))
+                    })
+
+                    _prev_grp  = "Preview Group"
+                    _prev_note = "Sample result note — reflects how notes appear on the printed report."
+                    _prev_tests  = []
+                    _prev_config = [{"test": _prev_grp}]
+
+                    if _gt_prev == "gauge":
+                        _pv = float(st.session_state.get('nt_preview_val', _midpoint))
+                        _cfg_s = json.dumps({
                             "graph_type": "gauge",
                             "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
                             "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
-                            "axis_min": _ax_min, "axis_max": _ax_max,
-                            "zones": _zones_prev
-                        }
-                        _prev_img = render_gauge(_mock_val, _prev_cfg)
-                        if _prev_img:
-                            st.image(_prev_img, use_container_width=True)
+                            "axis_min": _ax_min, "axis_max": _ax_max, "zones": _zones_prev
+                        })
+                        for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                            _prev_tests.append((
+                                _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
+                                _prev_note if _i == 0 else "", "Target Range",
+                                "gauge", _i+1, "Complete", _d, "Admin", "", _d, "Admin",
+                                "line", _prev_trend_cfg
+                            ))
+
+                    elif _gt_prev == "none":
+                        _pv = float(st.session_state.get('nt_preview_val', 72.5))
+                        _cfg_s = json.dumps({"graph_type": "none"})
+                        for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                            _prev_tests.append((
+                                _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
+                                _prev_note if _i == 0 else "", "Target Range",
+                                "none", _i+1, "Complete", _d, "Admin", "", _d, "Admin",
+                                "line", _prev_trend_cfg
+                            ))
 
                     elif _gt_prev == "dot":
-                        _nd_prev = st.session_state.get('nt_n_dots', 2)
-                        _mock_dots = {
-                            (st.session_state.get(f'nt_dot_name_{i}') or f"Test{i+1}"):
-                            float(st.session_state.get(f'nt_preview_val_{i}',
-                                  _ax_min + (_ax_max - _ax_min) * (0.4 + i * 0.2)))
-                            for i in range(min(_nd_prev, 2))
-                        }
-                        _dot_cfg = [
+                        _nd = min(st.session_state.get('nt_n_dots', 2), 2)
+                        _dots_cfg = [
                             {
-                                "test_name":    st.session_state.get(f'nt_dot_name_{i}') or f"Test{i+1}",
-                                "fill_color":   st.session_state.get(f'nt_dot_fill_{i}', '#003366'),
-                                "stroke_color": st.session_state.get(f'nt_dot_stroke_{i}', '#003366'),
-                                "label":        st.session_state.get(f'nt_dot_label_{i}', f"T{i+1}"),
+                                "test_name":    st.session_state.get(f'nt_dot_name_{_di}', '') or f"Test {_di+1}",
+                                "fill_color":   st.session_state.get(f'nt_dot_fill_{_di}', '#003366'),
+                                "stroke_color": st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'),
+                                "label":        st.session_state.get(f'nt_dot_label_{_di}', f"T{_di+1}"),
                             }
-                            for i in range(min(_nd_prev, 2))
+                            for _di in range(_nd)
                         ]
-                        _prev_cfg = {
-                            "graph_type": "dot",
-                            "axis_min": _ax_min, "axis_max": _ax_max,
-                            "zones": _zones_prev,
-                            "dots": _dot_cfg
-                        }
-                        _prev_img = render_dot(_mock_dots, _prev_cfg)
-                        if _prev_img:
-                            st.image(_prev_img, use_container_width=True)
+                        _primary_cfg = json.dumps({
+                            "graph_type": "dot", "axis_min": _ax_min, "axis_max": _ax_max,
+                            "zones": _zones_prev, "dots": _dots_cfg
+                        })
+                        _secondary_cfg = json.dumps({
+                            "graph_type": "dot", "dot_role": "secondary",
+                            "axis_min": _ax_min, "axis_max": _ax_max, "zones": _zones_prev
+                        })
+                        for _di in range(_nd):
+                            _dn = _dots_cfg[_di]["test_name"]
+                            _pv = float(st.session_state.get(f'nt_preview_val_{_di}',
+                                        _ax_min + (_ax_max - _ax_min) * (0.4 + _di * 0.2)))
+                            _dcfg = _primary_cfg if _di == 0 else _secondary_cfg
+                            for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                                _prev_tests.append((
+                                    _d, _dn, round(_pv * _m, 1), "units", _prev_grp, _dcfg,
+                                    _prev_note if (_i == 0 and _di == 0) else "", "Target Range",
+                                    "dot", _i*_nd + _di + 1, "Complete", _d, "Admin", "", _d, "Admin",
+                                    "bp_trend", _prev_trend_cfg
+                                ))
 
                     elif _gt_prev == "bar":
-                        _bar_n_prev  = st.session_state.get('nt_bar_n', 2)
-                        _bar_items_prev = []
-                        for _bi in range(_bar_n_prev):
+                        _bar_n = st.session_state.get('nt_bar_n', 2)
+                        for _bi in range(_bar_n):
                             _bpfx = f'nt_bt_{_bi}'
-                            _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                            _bt_name = st.session_state.get(f'{_bpfx}_name', '') or f"Test {_bi+1}"
+                            _bnz  = st.session_state.get(f'{_bpfx}_n_zones', 2)
                             _bt_zones = _zbuild(_bpfx, _bnz)
                             _default_v = (_bt_zones[0]['to'] + _bt_zones[-1]['from']) / 2 if _bt_zones else 5.0
-                            _mock_v = float(st.session_state.get(f'{_bpfx}_preview_val', _default_v))
-                            _bar_items_prev.append({
-                                "name":   st.session_state.get(f'{_bpfx}_name', f"Test {_bi+1}") or f"Test {_bi+1}",
-                                "value":  _mock_v,
-                                "unit":   st.session_state.get(f'{_bpfx}_unit', ''),
-                                "target": st.session_state.get(f'{_bpfx}_target', ''),
-                                "config": {
-                                    "graph_type": "bar",
-                                    "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
-                                    "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
-                                    "zones": _bt_zones
-                                }
+                            _pv = float(st.session_state.get(f'{_bpfx}_preview_val', _default_v))
+                            _bt_cfg = json.dumps({
+                                "graph_type": "bar",
+                                "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
+                                "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
+                                "zones": _bt_zones
                             })
-                        _prev_img = render_bars(_bar_items_prev)
-                        if _prev_img:
-                            st.image(_prev_img, use_container_width=True)
+                            for _i, (_d, _m) in enumerate(zip(_prev_dates, [1.0, 0.93, 1.09, 0.85, 1.05])):
+                                _prev_tests.append((
+                                    _d, _bt_name, round(_pv * _m, 1),
+                                    st.session_state.get(f'{_bpfx}_unit', ''), _prev_grp, _bt_cfg,
+                                    _prev_note if (_i == 0 and _bi == 0) else "",
+                                    st.session_state.get(f'{_bpfx}_target', ''),
+                                    "bar", _i*_bar_n + _bi + 1, "Complete", _d, "Admin", "", _d, "Admin",
+                                    "multi_trend", _prev_trend_cfg
+                                ))
+
+                    if _prev_tests:
+                        _prev_patient = {
+                            "first_name": "Preview", "last_name": "Patient",
+                            "dob": "1985-06-15", "patient_id": "DEMO-001"
+                        }
+                        _prev_theme = st.session_state.get('designer_theme') or {
+                            "page_bg": "#E6F5FF", "banner_bg": "#FFFFFF",
+                            "inner_box": "#F8FBFF", "border": "#B4D2E6",
+                            "text_primary": "#003366", "text_muted": "#505050",
+                            "radius": 5, "spacing": 8, "font": "Helvetica"
+                        }
+                        _prev_pdf = create_custom_report_pdf(
+                            patient=_prev_patient,
+                            tests=_prev_tests,
+                            report_config=_prev_config,
+                            note_overrides={},
+                            start_d=None, end_d=None,
+                            practitioner_statement="",
+                            next_steps="",
+                            footer_text="Preview Only",
+                            creator_name=st.session_state.get('username', 'Admin'),
+                            theme_config=_prev_theme
+                        )
+                        _b64_prev = base64.b64encode(_prev_pdf).decode()
+                        st.markdown(
+                            f'<iframe src="data:application/pdf;base64,{_b64_prev}" '
+                            f'width="100%" height="680" type="application/pdf"></iframe>',
+                            unsafe_allow_html=True
+                        )
 
                 except Exception as _prev_err:
                     st.caption(f"Preview unavailable: {_prev_err}")
