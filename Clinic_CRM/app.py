@@ -960,16 +960,20 @@ elif st.session_state.page == "Admin Console":
 
         # ---- PALETTE HELPER FUNCTION ----
         def _palette_select(label, key, current_hex, palette):
-            """Renders a selectbox of palette names; returns selected hex."""
+            """Renders a selectbox of palette names; returns selected hex.
+            Uses key+'_psel' internally so the caller's hex storage key stays writable."""
             if not palette:
                 return current_hex
             names = [p['name'] for p in palette]
             hexes = [p['hex'] for p in palette]
-            try:
-                idx = hexes.index(current_hex)
-            except ValueError:
-                idx = 0
-            sel = st.selectbox(label, names, index=idx, key=key, label_visibility="collapsed")
+            _sel_key = key + '_psel'
+            # Auto-initialise the selectbox key from current_hex on first render
+            if _sel_key not in st.session_state:
+                try:
+                    st.session_state[_sel_key] = names[hexes.index(current_hex)]
+                except ValueError:
+                    st.session_state[_sel_key] = names[0]
+            sel = st.selectbox(label, names, key=_sel_key, label_visibility="collapsed")
             return hexes[names.index(sel)]
 
         # 1. Fetch All Tests (with group JOIN for denormalised display)
