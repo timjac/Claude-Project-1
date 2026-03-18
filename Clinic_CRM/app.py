@@ -1130,6 +1130,14 @@ elif st.session_state.page == "Admin Console":
                         st.session_state[f'nt_zone_label_{_n}']  = ''
                         st.session_state['nt_n_zones'] = _n + 1
                         st.rerun()
+                    _nt_gz = _zbuild('nt', nt_n_zones)
+                    _nt_g_min = _nt_gz[0]['from'] if _nt_gz else 0.0
+                    _nt_g_max = _nt_gz[-1]['to']  if _nt_gz else 100.0
+                    _gpv_col, _ = st.columns(2)
+                    if 'nt_preview_val' not in st.session_state:
+                        st.session_state['nt_preview_val'] = _nt_g_min + (_nt_g_max - _nt_g_min) * 0.55
+                    _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
+                                          help="Used in the live chart preview only")
 
                 elif nt_graph == "dot":
                     # Initialize dot state if missing
@@ -1194,12 +1202,28 @@ elif st.session_state.page == "Admin Console":
                         st.session_state[f'nt_zone_label_{_n}']  = ''
                         st.session_state['nt_n_zones'] = _n + 1
                         st.rerun()
+                    _nt_dz = _zbuild('nt', nt_n_zones)
+                    _nt_d_min = _nt_dz[0]['from'] if _nt_dz else 0.0
+                    _nt_d_max = _nt_dz[-1]['to']  if _nt_dz else 200.0
+                    st.markdown("**Preview values**")
+                    _dpv_cols = st.columns(min(nd, 4))
+                    for _di in range(min(nd, 4)):
+                        if f'nt_preview_val_{_di}' not in st.session_state:
+                            st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
+                        _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
+                        _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
 
                 elif nt_graph == "bar":
                     nt_bar_n = int(st.number_input("Number of component tests", min_value=1, max_value=8,
                                                     value=st.session_state.get('nt_bar_n', 2),
                                                     key="nt_bar_n_input"))
                     st.session_state['nt_bar_n'] = nt_bar_n
+                    st.info(
+                        "**Target** must start with `>` or `<` (e.g. `> 1.0` or `< 5.2`). "
+                        "This is what controls when the **Alert Bar** colour is used — "
+                        "if the recorded value misses the target direction, the alert colour is applied.",
+                        icon="ℹ️"
+                    )
 
                     for _bi in range(nt_bar_n):
                         _bpfx = f'nt_bt_{_bi}'
@@ -1215,7 +1239,7 @@ elif st.session_state.page == "Admin Console":
                                          label_visibility="collapsed" if _bi > 0 else "visible")
                         _bc2.text_input("Unit", key=f'{_bpfx}_unit',
                                          label_visibility="collapsed" if _bi > 0 else "visible")
-                        _bc3.text_input("Target", key=f'{_bpfx}_target',
+                        _bc3.text_input("Target (e.g. > 1.0)", key=f'{_bpfx}_target',
                                          label_visibility="collapsed" if _bi > 0 else "visible")
                         _bcolor1, _bcolor2 = st.columns(2)
                         if f'{_bpfx}_barcol' not in st.session_state:
@@ -1237,8 +1261,13 @@ elif st.session_state.page == "Admin Console":
                             st.session_state[f'{_bpfx}_zone_color_1']   = '#FFCCCB'
                             st.session_state[f'{_bpfx}_zone_transp_1']  = False
                             st.session_state[f'{_bpfx}_zone_label_1']   = ''
-                        _baz_col, _ = st.columns(2)
+                        _baz_col, _bpv_col = st.columns(2)
                         _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
+                        if f'{_bpfx}_preview_val' not in st.session_state:
+                            st.session_state[f'{_bpfx}_preview_val'] = float(
+                                st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
+                        _bpv_col.number_input("Preview value", key=f'{_bpfx}_preview_val', step=0.1,
+                                              help="Used in the live chart preview only")
                         _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
                         st.markdown("**Zones**")
                         _zrender(_bpfx, _bnz, rm_key_sfx=f"_bt{_bi}")
@@ -1252,6 +1281,22 @@ elif st.session_state.page == "Admin Console":
                             st.session_state[f'{_bpfx}_n_zones'] = _n + 1
                             st.rerun()
                         st.markdown("---")
+
+                    # Group consistency check: all tests should share the same zone upper limit
+                    _nt_bar_limits = []
+                    for _bi in range(nt_bar_n):
+                        _bpfx = f'nt_bt_{_bi}'
+                        _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                        _last = st.session_state.get(f'{_bpfx}_zone_to_{_bnz-1}')
+                        if _last is not None:
+                            _nt_bar_limits.append(float(_last))
+                    if len(set(_nt_bar_limits)) > 1:
+                        st.warning(
+                            "All tests in a bar panel should share the same zone upper limit "
+                            "so the chart scale is consistent. "
+                            "Current upper limits: " + ", ".join(f"{l:g}" for l in _nt_bar_limits),
+                            icon="⚠️"
+                        )
 
                 # else: none — nothing more needed
 
@@ -1394,12 +1439,13 @@ elif st.session_state.page == "Admin Console":
                     _ax_max = _zones_prev[-1]['to']  if _zones_prev else 100.0
 
                     if _gt_prev == "none":
-                        _prev_img = render_text(72.5, "unit")
+                        _prev_img = render_text(st.session_state.get('nt_preview_val', 72.5), "")
                         if _prev_img:
                             st.image(_prev_img, use_container_width=True)
 
                     elif _gt_prev == "gauge":
-                        _mock_val = _ax_min + (_ax_max - _ax_min) * 0.55
+                        _mock_val = float(st.session_state.get('nt_preview_val',
+                                          _ax_min + (_ax_max - _ax_min) * 0.55))
                         _prev_cfg = {
                             "graph_type": "gauge",
                             "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
@@ -1414,7 +1460,9 @@ elif st.session_state.page == "Admin Console":
                     elif _gt_prev == "dot":
                         _nd_prev = st.session_state.get('nt_n_dots', 2)
                         _mock_dots = {
-                            (st.session_state.get(f'nt_dot_name_{i}') or f"Test{i+1}"): _ax_min + (_ax_max - _ax_min) * (0.4 + i * 0.2)
+                            (st.session_state.get(f'nt_dot_name_{i}') or f"Test{i+1}"):
+                            float(st.session_state.get(f'nt_preview_val_{i}',
+                                  _ax_min + (_ax_max - _ax_min) * (0.4 + i * 0.2)))
                             for i in range(min(_nd_prev, 2))
                         }
                         _dot_cfg = [
@@ -1443,7 +1491,8 @@ elif st.session_state.page == "Admin Console":
                             _bpfx = f'nt_bt_{_bi}'
                             _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
                             _bt_zones = _zbuild(_bpfx, _bnz)
-                            _mock_v = (_bt_zones[0]['to'] + _bt_zones[-1]['from']) / 2 if _bt_zones else 5.0
+                            _default_v = (_bt_zones[0]['to'] + _bt_zones[-1]['from']) / 2 if _bt_zones else 5.0
+                            _mock_v = float(st.session_state.get(f'{_bpfx}_preview_val', _default_v))
                             _bar_items_prev.append({
                                 "name":   st.session_state.get(f'{_bpfx}_name', f"Test {_bi+1}") or f"Test {_bi+1}",
                                 "value":  _mock_v,
@@ -1702,6 +1751,11 @@ elif st.session_state.page == "Admin Console":
                     if _et_gt == 'bar':
                         # ---- Per-test sections for bar groups ----
                         _et_bar_n = st.session_state.get('et_bar_n', 0)
+                        st.info(
+                            "**Target** must start with `>` or `<` (e.g. `> 1.0`). "
+                            "This controls when the **Alert Bar** colour is used.",
+                            icon="ℹ️"
+                        )
                         for _bi in range(_et_bar_n):
                             _bpfx = f'et_bt_{_bi}'
                             if f'{_bpfx}_name' not in st.session_state:
@@ -1713,8 +1767,8 @@ elif st.session_state.page == "Admin Console":
                                 st.session_state[f'{_bpfx}_unit'] = ''
                             if f'{_bpfx}_target' not in st.session_state:
                                 st.session_state[f'{_bpfx}_target'] = ''
-                            _bc1.text_input("Unit",   key=f'{_bpfx}_unit')
-                            _bc2.text_input("Target", key=f'{_bpfx}_target')
+                            _bc1.text_input("Unit",             key=f'{_bpfx}_unit')
+                            _bc2.text_input("Target (e.g. > 1.0)", key=f'{_bpfx}_target')
                             _bcolor1, _bcolor2 = st.columns(2)
                             if f'{_bpfx}_barcol' not in st.session_state:
                                 st.session_state[f'{_bpfx}_barcol'] = '#003366'
@@ -1724,8 +1778,13 @@ elif st.session_state.page == "Admin Console":
                             _bcolor2.color_picker("Alert bar colour", key=f'{_bpfx}_alertcol')
                             if f'{_bpfx}_axis_start' not in st.session_state:
                                 st.session_state[f'{_bpfx}_axis_start'] = 0.0
-                            _baz_col, _ = st.columns(2)
+                            _baz_col, _bpv_col = st.columns(2)
                             _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
+                            if f'{_bpfx}_preview_val' not in st.session_state:
+                                st.session_state[f'{_bpfx}_preview_val'] = float(
+                                    st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
+                            _bpv_col.number_input("Preview value", key=f'{_bpfx}_preview_val', step=0.1,
+                                                  help="Used in the live chart preview only")
                             _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
                             st.markdown("**Zones**")
                             _zrender(_bpfx, _bnz, rm_key_sfx=f"_etbt{_bi}")
@@ -1739,6 +1798,22 @@ elif st.session_state.page == "Admin Console":
                                 st.session_state[f'{_bpfx}_n_zones'] = _n + 1
                                 st.rerun()
                             st.markdown("---")
+
+                        # Group consistency check: all tests should share the same zone upper limit
+                        _et_bar_limits = []
+                        for _bi in range(_et_bar_n):
+                            _bpfx = f'et_bt_{_bi}'
+                            _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                            _last = st.session_state.get(f'{_bpfx}_zone_to_{_bnz-1}')
+                            if _last is not None:
+                                _et_bar_limits.append(float(_last))
+                        if len(set(_et_bar_limits)) > 1:
+                            st.warning(
+                                "All tests in a bar panel should share the same zone upper limit "
+                                "for a consistent chart scale. "
+                                "Current upper limits: " + ", ".join(f"{l:g}" for l in _et_bar_limits),
+                                icon="⚠️"
+                            )
 
                     else:
                         # ---- Single-config editor (gauge / dot / none) ----
@@ -1779,6 +1854,14 @@ elif st.session_state.page == "Admin Console":
                                 st.session_state[f'et_zone_label_{_n}']  = ''
                                 st.session_state['et_n_zones'] = _n + 1
                                 st.rerun()
+                            _etg_zones = _zbuild('et', _et_nz)
+                            _etg_min = _etg_zones[0]['from'] if _etg_zones else 0.0
+                            _etg_max = _etg_zones[-1]['to']  if _etg_zones else 100.0
+                            _etgpv_col, _ = st.columns(2)
+                            if 'et_preview_val' not in st.session_state:
+                                st.session_state['et_preview_val'] = _etg_min + (_etg_max - _etg_min) * 0.55
+                            _etgpv_col.number_input("Preview value", key='et_preview_val', step=0.1,
+                                                    help="Used in the live chart preview only")
 
                         elif _et_gt == "dot":
                             _et_nd = st.session_state.get('et_n_dots', 2)
@@ -1831,8 +1914,24 @@ elif st.session_state.page == "Admin Console":
                                 st.session_state[f'et_zone_label_{_n}']  = ''
                                 st.session_state['et_n_zones'] = _n + 1
                                 st.rerun()
+                            _etd_zones = _zbuild('et', _et_nz)
+                            _etd_min = _etd_zones[0]['from'] if _etd_zones else 0.0
+                            _etd_max = _etd_zones[-1]['to']  if _etd_zones else 200.0
+                            st.markdown("**Preview values**")
+                            _etdpv_cols = st.columns(min(_et_nd, 4))
+                            for _di in range(min(_et_nd, 4)):
+                                if f'et_preview_val_{_di}' not in st.session_state:
+                                    st.session_state[f'et_preview_val_{_di}'] = _etd_min + (_etd_max - _etd_min) * (0.4 + _di * 0.2)
+                                _dlbl = st.session_state.get(f'et_dot_name_{_di}') or f"Dot {_di+1}"
+                                _etdpv_cols[_di].number_input(_dlbl, key=f'et_preview_val_{_di}', step=0.1)
 
-                        # else: none — unit/target only
+                        elif _et_gt == "none":
+                            _etnpv_col, _ = st.columns(2)
+                            if 'et_preview_val' not in st.session_state:
+                                st.session_state['et_preview_val'] = 72.5
+                            _etnpv_col.number_input("Preview value", key='et_preview_val', step=0.1,
+                                                    help="Used in the live chart preview only")
+                        # (gauge preview val added above in gauge block)
 
                     st.divider()
 
@@ -2015,7 +2114,8 @@ elif st.session_state.page == "Admin Console":
                                 _bpfx = f'et_bt_{_bi}'
                                 _bnz  = st.session_state.get(f'{_bpfx}_n_zones', 2)
                                 _bt_zones_p = _zbuild(_bpfx, _bnz)
-                                _mock_v = (_bt_zones_p[0]['to'] + _bt_zones_p[-1]['from']) / 2 if _bt_zones_p else 5.0
+                                _default_v = (_bt_zones_p[0]['to'] + _bt_zones_p[-1]['from']) / 2 if _bt_zones_p else 5.0
+                                _mock_v = float(st.session_state.get(f'{_bpfx}_preview_val', _default_v))
                                 _et_bar_items_p.append({
                                     "name":   st.session_state.get(f'{_bpfx}_name', f"Test {_bi+1}"),
                                     "value":  _mock_v,
@@ -2036,9 +2136,12 @@ elif st.session_state.page == "Admin Console":
                             _et_ax_max_p = _et_zones_p[-1]['to']  if _et_zones_p else 100.0
 
                             if _et_gt == "none":
-                                _et_img = render_text(72.5, st.session_state.get('et_unit', ''))
+                                _et_img = render_text(
+                                    float(st.session_state.get('et_preview_val', 72.5)),
+                                    st.session_state.get('et_unit', ''))
                             elif _et_gt == "gauge":
-                                _mock_v = _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * 0.55
+                                _mock_v = float(st.session_state.get('et_preview_val',
+                                                _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * 0.55))
                                 _et_img = render_gauge(_mock_v, {
                                     "graph_type":       "gauge",
                                     "gauge_style":      st.session_state.get('et_gauge_style', 'curved'),
@@ -2049,7 +2152,9 @@ elif st.session_state.page == "Admin Console":
                             elif _et_gt == "dot":
                                 _et_nd_p = st.session_state.get('et_n_dots', 2)
                                 _et_mock_dots = {
-                                    (st.session_state.get(f'et_dot_name_{i}') or f"Test{i+1}"): _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * (0.4 + i * 0.2)
+                                    (st.session_state.get(f'et_dot_name_{i}') or f"Test{i+1}"):
+                                    float(st.session_state.get(f'et_preview_val_{i}',
+                                          _et_ax_min_p + (_et_ax_max_p - _et_ax_min_p) * (0.4 + i * 0.2)))
                                     for i in range(min(_et_nd_p, 2))
                                 }
                                 _et_dot_cfg = [

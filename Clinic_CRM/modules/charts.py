@@ -73,6 +73,38 @@ def _find_zone_color(value, zones):
     return '#888888'
 
 
+def _parse_target(target_str):
+    """Parse '> X' or '< X' target string. Returns (operator, float_value) or (None, None)."""
+    if not target_str:
+        return None, None
+    t = str(target_str).strip()
+    try:
+        if t.startswith('>='):
+            return '>=', float(t[2:].strip())
+        elif t.startswith('<='):
+            return '<=', float(t[2:].strip())
+        elif t.startswith('>'):
+            return '>', float(t[1:].strip())
+        elif t.startswith('<'):
+            return '<', float(t[1:].strip())
+    except (ValueError, TypeError):
+        pass
+    return None, None
+
+
+def _is_alert_value(value, target_str):
+    """True when the value fails to meet its target (alert bar colour should apply)."""
+    op, thresh = _parse_target(target_str)
+    if op is None:
+        return False
+    v = float(value)
+    if op == '>':  return v <= thresh
+    if op == '>=': return v < thresh
+    if op == '<':  return v >= thresh
+    if op == '<=': return v > thresh
+    return False
+
+
 # ==========================================
 # 3. NEW CHART GENERATORS
 # ==========================================
@@ -265,47 +297,58 @@ def render_bars(panel_items, config=None):
     if not panel_items:
         return None
 
-    # Alert zone colors (red/orange tones)
-    ALERT_ZONE_COLORS = {'#ffcccb', '#ffe4b5'}
+    def fmt(v):
+        return str(int(v)) if float(v).is_integer() else f"{v:.2f}".rstrip('0').rstrip('.')
+
+    # Determine axis end from the maximum zone 'to' across all items.
+    # This ensures zones are never clipped, regardless of current values.
+    max_zone_to  = max(
+        (float(item.get("config", {}).get("zones", [{}])[-1].get("to", 0))
+         for item in panel_items),
+        default=0.0
+    )
+    max_val_seen = max(
+        (float(item.get("value", 0)) for item in panel_items),
+        default=0.0
+    )
+    axis_end = max(max_zone_to, max_val_seen)
+    padding  = axis_end * 0.15 + 0.5
 
     fig, ax = plt.subplots()
-    max_val_seen = 0.0
 
     for i, item in enumerate(panel_items):
         try:
             val = float(item["value"])
         except (ValueError, TypeError):
             val = 0.0
-        max_val_seen = max(max_val_seen, val)
 
         item_config = item.get("config", {})
         zones = item_config.get("zones", [])
-        bar_color = item_config.get("bar_color", COLOR_PRIMARY)
+        bar_color       = item_config.get("bar_color",       COLOR_PRIMARY)
         bar_alert_color = item_config.get("bar_alert_color", COLOR_ALERT)
 
-        # Zone background bands
+        # Zone background bands (extend to full axis width)
         for zone in zones:
             z_from = float(zone['from'])
-            z_to = float(zone['to'])
-            color = zone.get('color', '#D4EDDA')
+            z_to   = float(zone['to'])
+            color  = zone.get('color', '#D4EDDA')
             if z_to > z_from and color != 'transparent':
                 ax.add_patch(patches.Rectangle(
                     (z_from, i - 0.4), z_to - z_from, 0.8,
                     color=color, zorder=1))
 
-        # Bar color: alert if value lands in a red/orange zone
-        zone_color = _find_zone_color(val, zones)
-        is_alert = zone_color.lower() in ALERT_ZONE_COLORS
-        color = bar_alert_color if is_alert else bar_color
+        # Alert when the value misses its target (> or < in target string)
+        is_alert = _is_alert_value(val, item.get('target', ''))
+        color    = bar_alert_color if is_alert else bar_color
 
         ax.barh(i, val, color=color, height=0.4, zorder=3)
-        ax.text(val + 0.05, i, str(val), va='center',
+        ax.text(val + padding * 0.08, i, fmt(val), va='center',
                 fontweight='bold', color=color, zorder=4)
 
     ax.set_yticks(range(len(panel_items)))
     ax.set_yticklabels([f"{item['name']} ({item.get('target', '')})"
                         for item in panel_items])
-    ax.set_xlim(0, max_val_seen + (max_val_seen * 0.2) + 1.0)
+    ax.set_xlim(0, axis_end + padding)
     ax.set_xticks([])
     ax.invert_yaxis()
 
