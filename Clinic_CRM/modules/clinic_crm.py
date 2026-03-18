@@ -455,13 +455,16 @@ class ClinicCRM:
                 }
             })),
             ("colour_palette", json.dumps([
-                {"name": "Safe Green",    "hex": "#D4EDDA"},
-                {"name": "Alert Red",     "hex": "#FFCCCB"},
-                {"name": "Warning Amber", "hex": "#FFE4B5"},
-                {"name": "Low Blue",      "hex": "#ADD8E6"},
-                {"name": "Navy",          "hex": "#003366"},
-                {"name": "Neutral Grey",  "hex": "#E0E0E0"},
-                {"name": "Transparent",   "hex": "transparent"}
+                {"name": "Pale Green",   "hex": "#D4EDDA"},
+                {"name": "Pale Amber",   "hex": "#FFE4B5"},
+                {"name": "Pale Red",     "hex": "#FFCCCB"},
+                {"name": "Pale Blue",    "hex": "#ADD8E6"},
+                {"name": "Green",        "hex": "#28A745"},
+                {"name": "Amber",        "hex": "#FFA500"},
+                {"name": "Red",          "hex": "#DC3545"},
+                {"name": "Blue",         "hex": "#003366"},
+                {"name": "Neutral Grey", "hex": "#E0E0E0"},
+                {"name": "Transparent",  "hex": "transparent"}
             ])),
         ]
         self.cursor.executemany(

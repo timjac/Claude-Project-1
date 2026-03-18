@@ -732,31 +732,32 @@ elif st.session_state.page == "Admin Console":
 
         if staff_list:
             st.divider()
-            staff_dict = {s['Staff ID']: f"{s['Username']} ({s['Role']})" for _, s in df_staff.iterrows()}
-            selected_staff_id = st.selectbox("Select Staff Member", options=list(staff_dict.keys()), format_func=lambda x: staff_dict[x])
-            action = st.radio("Action to perform:", ["Change Password", "Delete User"], horizontal=True)
-            st.divider()
+            with st.expander("⚙️ Manage Existing Staff", expanded=False):
+                staff_dict = {s['Staff ID']: f"{s['Username']} ({s['Role']})" for _, s in df_staff.iterrows()}
+                selected_staff_id = st.selectbox("Select Staff Member", options=list(staff_dict.keys()), format_func=lambda x: staff_dict[x])
+                action = st.radio("Action to perform:", ["Change Password", "Delete User"], horizontal=True)
+                st.divider()
 
-            if action == "Change Password":
-                with st.form("change_pwd_form", clear_on_submit=True):
-                    new_pwd = st.text_input("New Password", type="password")
-                    if st.form_submit_button("💾 Update Password", type="primary"):
-                        if new_pwd.strip():
+                if action == "Change Password":
+                    with st.form("change_pwd_form", clear_on_submit=True):
+                        new_pwd = st.text_input("New Password", type="password")
+                        if st.form_submit_button("💾 Update Password", type="primary"):
+                            if new_pwd.strip():
+                                crm.connect()
+                                crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?", (hash_password(new_pwd.strip()), selected_staff_id))
+                                crm.conn.commit(); crm.close()
+                                st.success("Password successfully updated!"); st.rerun()
+                elif action == "Delete User":
+                    selected_username = staff_dict[selected_staff_id].split(" (")[0]
+                    if st.session_state.get('username') == selected_username: st.error("⚠️ You cannot delete your own account.")
+                    elif len(staff_dict) <= 1: st.error("⛔ **Action Denied:** Cannot delete the last remaining staff member.")
+                    else:
+                        st.warning(f"Permenantly delete **{selected_username}**?")
+                        if st.button("🗑️ Confirm Delete User", type="primary"):
                             crm.connect()
-                            crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?", (hash_password(new_pwd.strip()), selected_staff_id))
+                            crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (selected_staff_id,))
                             crm.conn.commit(); crm.close()
-                            st.success("Password successfully updated!"); st.rerun()
-            elif action == "Delete User":
-                selected_username = staff_dict[selected_staff_id].split(" (")[0]
-                if st.session_state.get('username') == selected_username: st.error("⚠️ You cannot delete your own account.")
-                elif len(staff_dict) <= 1: st.error("⛔ **Action Denied:** Cannot delete the last remaining staff member.")
-                else:
-                    st.warning(f"Permenantly delete **{selected_username}**?")
-                    if st.button("🗑️ Confirm Delete User", type="primary"):
-                        crm.connect()
-                        crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (selected_staff_id,))
-                        crm.conn.commit(); crm.close()
-                        st.success("User deleted."); time.sleep(1); st.rerun()
+                            st.success("User deleted."); time.sleep(1); st.rerun()
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
@@ -786,27 +787,25 @@ elif st.session_state.page == "Admin Console":
         with design_col:
             st.markdown("#### 🎨 Preset Themes")
             
+            st.markdown("""
+                <style>
+                div.stButton > button { white-space: pre-wrap; text-align: center; height: 3.5rem; }
+                </style>
+            """, unsafe_allow_html=True)
             _presets_layout = [
-                [("🌊", "Classic\nBlue",    "Classic Blue"),
-                 ("🏢", "Modern\nMinimal",  "Modern Minimal"),
-                 ("🌿", "Warm\nEmerald",    "Warm Emerald")],
-                [("🌅", "Sunset\nCoral",    "Sunset Coral"),
-                 ("☂️", "Royal\nViolet",    "Royal Violet"),
-                 ("🪨", "Crisp\nSlate",     "Crisp Slate")],
+                [("🌊", "Classic Blue"),
+                 ("🏢", "Modern Minimal"),
+                 ("🌿", "Warm Emerald")],
+                [("🌅", "Sunset Coral"),
+                 ("☂️", "Royal Violet"),
+                 ("🪨", "Crisp Slate")],
             ]
             for _row in _presets_layout:
                 _rcols = st.columns(3)
-                for _rc, (_em, _lbl, _name) in zip(_rcols, _row):
-                    with _rc:
-                        _ic, _bc = st.columns([1, 3])
-                        _ic.markdown(
-                            f"<p style='font-size:22px;text-align:center;margin:0;"
-                            f"line-height:2.5rem'>{_em}</p>",
-                            unsafe_allow_html=True
-                        )
-                        if _bc.button(_lbl, use_container_width=True, key=f"preset_{_name}"):
-                            st.session_state.designer_theme = PRESETS[_name]
-                            st.rerun()
+                for _rc, (_em, _name) in zip(_rcols, _row):
+                    if _rc.button(f"{_em}\n{_name}", use_container_width=True, key=f"preset_{_name}"):
+                        st.session_state.designer_theme = PRESETS[_name]
+                        st.rerun()
             
             st.divider(); st.markdown("#### ⚙️ Global Report Settings")
             with st.form("theme_designer_form", border=False):
@@ -947,12 +946,14 @@ elif st.session_state.page == "Admin Console":
 
             st.divider()
             with st.form("add_colour_form", clear_on_submit=True):
-                _ac1, _ac2 = st.columns(2)
-                _new_pal_name = _ac1.text_input("Colour Name")
-                _new_pal_hex  = _ac2.color_picker("Colour", value="#D4EDDA")
+                _ac1, _ac2, _ac3 = st.columns([2, 2, 1.5])
+                _new_pal_name  = _ac1.text_input("Colour Name")
+                _new_pal_hex   = _ac2.color_picker("Colour", value="#D4EDDA")
+                _new_pal_transp = _ac3.checkbox("Transparent", help="Save as 'transparent' — used to hide zone backgrounds")
                 if st.form_submit_button("Add Colour"):
                     if _new_pal_name.strip():
-                        PALETTE.append({"name": _new_pal_name.strip(), "hex": _new_pal_hex})
+                        _final_hex = "transparent" if _new_pal_transp else _new_pal_hex
+                        PALETTE.append({"name": _new_pal_name.strip(), "hex": _final_hex})
                         crm.update_setting("colour_palette", json.dumps(PALETTE))
                         st.rerun()
                     else:
