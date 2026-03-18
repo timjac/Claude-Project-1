@@ -1583,64 +1583,6 @@ elif st.session_state.page == "Admin Console":
             else:
                 st.caption("No active test definitions found.")
 
-        _bar_groups = [row for row in all_test_groups if row['chart_type'] == 'bar']
-        with st.expander(f"➕ Add Test to Existing Bar Panel ({len(_bar_groups)} available)", expanded=False):
-            st.caption("Adds an extra test to an existing horizontal bar panel.")
-            if not _bar_groups:
-                st.info("No bar panels exist yet. Use 'Add New Test or Panel' above to create one first.")
-            else:
-                atp_panel = st.selectbox("Select Panel", options=[row['group_name'] for row in _bar_groups], key="add_to_panel_select")
-                atp_inherited = next((row for row in _bar_groups if row['group_name'] == atp_panel), None)
-                atp_group_id  = atp_inherited['group_id']         if atp_inherited else None
-                atp_trend     = atp_inherited['trend_chart_type'] if atp_inherited else 'multi_trend'
-                st.info(f"Chart style: **bar** | Trend chart: **{atp_trend}** (inherited from panel)")
-
-                with st.form("add_to_panel_form", clear_on_submit=True):
-                    col1, col2 = st.columns(2)
-                    atp_name   = col1.text_input("Test Name (e.g., HDL Cholesterol)")
-                    atp_unit   = col2.text_input("Unit (e.g., mmol/L)")
-                    atp_target = st.text_input("Target Display Text (e.g., '>1.0')")
-                    atp_barcol   = st.color_picker("Bar colour",       value="#003366", key="atp_barcol")
-                    atp_alertcol = st.color_picker("Alert bar colour", value="#DC3545", key="atp_alertcol")
-                    st.markdown("#### Zones")
-                    st.caption("Define colour zones for this test's bar background (left to right).")
-                    _atp_zones_raw = [
-                        {"from": 0.0, "to": 5.0, "color": "#D4EDDA", "label": "Normal"},
-                        {"from": 5.0, "to": 15.0, "color": "#FFCCCB", "label": "High"}
-                    ]
-                    atp_zones_text = st.text_area("Zones JSON", value=json.dumps(_atp_zones_raw, indent=2), height=140)
-                    st.divider()
-                    if st.form_submit_button("💾 Save Test", type="primary"):
-                        if atp_name.strip():
-                            try:
-                                _parsed_zones = json.loads(atp_zones_text)
-                            except json.JSONDecodeError:
-                                st.error("Invalid zones JSON — check format.")
-                                st.stop()
-                            crm.connect()
-                            try:
-                                _atp_cfg = json.dumps({
-                                    "graph_type": "bar",
-                                    "bar_color": atp_barcol,
-                                    "bar_alert_color": atp_alertcol,
-                                    "zones": _parsed_zones
-                                })
-                                crm.cursor.execute("""
-                                    INSERT INTO test_definitions (test_name, test_group, unit, default_target, chart_type, chart_config, group_id)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """, (atp_name.strip(), atp_panel, atp_unit.strip(), atp_target.strip(), "bar",
-                                      _atp_cfg, atp_group_id))
-                                crm.conn.commit()
-                                st.success(f"Test '{atp_name}' added to panel '{atp_panel}'!")
-                                time.sleep(1)
-                                st.rerun()
-                            except sqlite3.IntegrityError:
-                                st.error(f"Test '{atp_name}' already exists.")
-                            finally:
-                                crm.close()
-                        else:
-                            st.warning("Test Name is required.")
-
         def _cascade_rename(cur, old_name, new_name):
             """Atomically rename a test across all tables and JSON config references."""
             cur.execute("UPDATE test_definitions SET test_name = ? WHERE test_name = ?", (new_name, old_name))
