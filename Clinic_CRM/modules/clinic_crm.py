@@ -232,6 +232,47 @@ class ClinicCRM:
             );
         """)
 
+        # --- Table: Staff Shift Patterns ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS staff_shift_patterns (
+                pattern_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                username     TEXT NOT NULL,
+                pattern_type TEXT NOT NULL CHECK(pattern_type IN ('weekly', 'fortnightly')),
+                anchor_date  TEXT NOT NULL,
+                is_active    INTEGER DEFAULT 1,
+                created_by   TEXT,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # --- Table: Staff Shift Days ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS staff_shift_days (
+                shift_day_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern_id   INTEGER NOT NULL REFERENCES staff_shift_patterns(pattern_id),
+                week_number  INTEGER NOT NULL,
+                day_of_week  INTEGER NOT NULL,
+                start_time   TEXT,
+                end_time     TEXT
+            );
+        """)
+
+        # --- Table: Staff Availability Overrides ---
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS staff_availability_overrides (
+                override_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT NOT NULL,
+                override_date TEXT NOT NULL,
+                override_type TEXT NOT NULL,
+                is_available  INTEGER DEFAULT 0,
+                start_time    TEXT,
+                end_time      TEXT,
+                notes         TEXT,
+                created_by    TEXT,
+                created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # --- Populate Field Definitions ---
         # display_role: 'name' = part of patient heading, 'caption' = shown in subtitle, NULL = not in header
         fields = [
@@ -671,6 +712,154 @@ class ClinicCRM:
         self.conn.commit()
         self.close()
     
+    # ==========================================
+    # STAFF ROTA
+    # ==========================================
+
+    def save_shift_pattern(self, username, pattern_type, anchor_date, days_data, created_by):
+        """
+        Deactivate any existing active pattern and save a new one.
+        days_data: list of (week_number, day_of_week, start_time, end_time) tuples.
+        Only include working days — absent days are treated as days off.
+        """
+        self.connect()
+        self.cursor.execute(
+            "UPDATE staff_shift_patterns SET is_active = 0 WHERE username = ? AND is_active = 1",
+            (username,)
+        )
+        self.cursor.execute("""
+            INSERT INTO staff_shift_patterns (username, pattern_type, anchor_date, created_by)
+            VALUES (?, ?, ?, ?)
+        """, (username, pattern_type, str(anchor_date), created_by))
+        pattern_id = self.cursor.lastrowid
+        for week_num, day_of_week, start_time, end_time in days_data:
+            self.cursor.execute("""
+                INSERT INTO staff_shift_days (pattern_id, week_number, day_of_week, start_time, end_time)
+                VALUES (?, ?, ?, ?, ?)
+            """, (pattern_id, week_num, day_of_week, start_time, end_time))
+        self.conn.commit()
+        self.close()
+        return pattern_id
+
+    def get_shift_pattern(self, username):
+        """Returns (pattern_dict, [shift_day_dicts]) for the active pattern, or (None, [])."""
+        self.connect()
+        self.cursor.execute("""
+            SELECT * FROM staff_shift_patterns
+            WHERE username = ? AND is_active = 1
+            ORDER BY created_at DESC LIMIT 1
+        """, (username,))
+        pattern = self.cursor.fetchone()
+        if not pattern:
+            self.close()
+            return None, []
+        self.cursor.execute("""
+            SELECT week_number, day_of_week, start_time, end_time
+            FROM staff_shift_days WHERE pattern_id = ?
+            ORDER BY week_number, day_of_week
+        """, (pattern['pattern_id'],))
+        days = [dict(d) for d in self.cursor.fetchall()]
+        self.close()
+        return dict(pattern), days
+
+    def get_staff_availability(self, username, check_date):
+        """
+        Returns availability for a staff member on a specific date.
+        Overrides take precedence over the shift pattern.
+        Returns dict: {is_working, start_time, end_time, override_type, notes, source}
+        source values: 'override', 'pattern', 'before_start', 'none'
+        """
+        if isinstance(check_date, str):
+            check_date = datetime.date.fromisoformat(check_date)
+        self.connect()
+        # Override takes precedence
+        self.cursor.execute("""
+            SELECT * FROM staff_availability_overrides
+            WHERE username = ? AND override_date = ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (username, str(check_date)))
+        override = self.cursor.fetchone()
+        if override:
+            override = dict(override)
+            self.close()
+            return {
+                'is_working': bool(override['is_available']),
+                'start_time': override['start_time'],
+                'end_time': override['end_time'],
+                'override_type': override['override_type'],
+                'notes': override['notes'],
+                'source': 'override'
+            }
+        # Fall back to shift pattern
+        self.cursor.execute("""
+            SELECT * FROM staff_shift_patterns
+            WHERE username = ? AND is_active = 1
+            ORDER BY created_at DESC LIMIT 1
+        """, (username,))
+        pattern = self.cursor.fetchone()
+        if not pattern:
+            self.close()
+            return {'is_working': None, 'start_time': None, 'end_time': None,
+                    'override_type': None, 'notes': 'No shift pattern set', 'source': 'none'}
+        pattern = dict(pattern)
+        anchor = datetime.date.fromisoformat(pattern['anchor_date'])
+        days_since_anchor = (check_date - anchor).days
+        if days_since_anchor < 0:
+            self.close()
+            return {'is_working': None, 'start_time': None, 'end_time': None,
+                    'override_type': None, 'notes': 'Before pattern start', 'source': 'before_start'}
+        period_length = 7 if pattern['pattern_type'] == 'weekly' else 14
+        day_in_period = days_since_anchor % period_length
+        week_number = (day_in_period // 7) + 1
+        day_of_week = day_in_period % 7
+        self.cursor.execute("""
+            SELECT start_time, end_time FROM staff_shift_days
+            WHERE pattern_id = ? AND week_number = ? AND day_of_week = ?
+        """, (pattern['pattern_id'], week_number, day_of_week))
+        shift = self.cursor.fetchone()
+        self.close()
+        if shift:
+            return {'is_working': True, 'start_time': shift['start_time'], 'end_time': shift['end_time'],
+                    'override_type': None, 'notes': None, 'source': 'pattern'}
+        return {'is_working': False, 'start_time': None, 'end_time': None,
+                'override_type': None, 'notes': None, 'source': 'pattern'}
+
+    def add_availability_override(self, username, override_date, override_type, is_available,
+                                   start_time, end_time, notes, created_by):
+        self.connect()
+        self.cursor.execute("""
+            INSERT INTO staff_availability_overrides
+            (username, override_date, override_type, is_available, start_time, end_time, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (username, str(override_date), override_type, int(is_available),
+              start_time, end_time, notes, created_by))
+        self.conn.commit()
+        self.close()
+        return True
+
+    def get_availability_overrides(self, username, from_date=None, to_date=None):
+        self.connect()
+        sql = "SELECT * FROM staff_availability_overrides WHERE username = ?"
+        params = [username]
+        if from_date:
+            sql += " AND override_date >= ?"
+            params.append(str(from_date))
+        if to_date:
+            sql += " AND override_date <= ?"
+            params.append(str(to_date))
+        sql += " ORDER BY override_date DESC"
+        self.cursor.execute(sql, params)
+        rows = [dict(r) for r in self.cursor.fetchall()]
+        self.close()
+        return rows
+
+    def delete_availability_override(self, override_id):
+        self.connect()
+        self.cursor.execute("DELETE FROM staff_availability_overrides WHERE override_id = ?", (override_id,))
+        self.conn.commit()
+        self.close()
+        return True
+
     def get_setting(self, key, default_value=""):
         self.connect()
         self.cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key = ?", (key,))
