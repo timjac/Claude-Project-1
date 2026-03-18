@@ -27,5 +27,9 @@ Clinic_CRM/.streamlit/
 # Database (contains patient data)
 Clinic_CRM/*.db
 
+# Claude Code (local settings and temp files)
+.claude/
+*.tmp.*
+
 # Claude Code instructions (local only)
 CLAUDE.md
