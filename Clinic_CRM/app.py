@@ -1694,7 +1694,7 @@ elif st.session_state.page == "Admin Console":
                     })
 
                     _prev_grp  = "Preview Group"
-                    _prev_note = "Sample result note — reflects how notes appear on the printed report."
+                    _prev_note = "Sample result note - reflects how notes appear on the printed report."
                     _prev_tests  = []
                     _prev_config = [{"test": _prev_grp}]
 
