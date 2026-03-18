@@ -240,51 +240,6 @@ if st.session_state.page == "Lobby":
                 else:
                     st.success("✅ No conflicts.")
 
-                st.divider()
-                st.markdown("**Availability Overrides**")
-                _lr_sel = st.selectbox("Staff Member", _lr_staff, key="lr_rota_staff_select")
-                if _lr_sel:
-                    with st.expander("➕ Add Override", expanded=False):
-                        with st.form(f"lr_override_{_lr_sel}", clear_on_submit=True):
-                            _lo_c1, _lo_c2, _lo_c3 = st.columns(3)
-                            _lo_date  = _lo_c1.date_input("Date")
-                            _lo_type  = _lo_c2.selectbox("Type", _LR_OVERRIDE_TYPES)
-                            _lo_avail = _lo_c3.checkbox("Available (extra shift)", value=False)
-                            _lo_c4, _lo_c5, _lo_c6 = st.columns(3)
-                            _lo_full  = _lo_c4.checkbox("Full day", value=True)
-                            _lo_start = _lo_c5.time_input("Start", value=datetime.strptime("09:00", "%H:%M").time())
-                            _lo_end   = _lo_c6.time_input("End",   value=datetime.strptime("17:00", "%H:%M").time())
-                            st.caption("Start/End only used when 'Full day' is unchecked.")
-                            _lo_notes = st.text_input("Notes (optional)")
-                            if st.form_submit_button("Add Override", type="primary"):
-                                crm.add_availability_override(
-                                    _lr_sel, str(_lo_date), _lo_type, int(_lo_avail),
-                                    None if _lo_full else _lo_start.strftime("%H:%M"),
-                                    None if _lo_full else _lo_end.strftime("%H:%M"),
-                                    _lo_notes.strip() or None, st.session_state['username'])
-                                st.success("Override added."); st.rerun()
-
-                    _lr_ovs = crm.get_availability_overrides(_lr_sel)
-                    if _lr_ovs:
-                        _lr_ov_tbl = pd.DataFrame(_lr_ovs)[
-                            ['override_id', 'override_date', 'override_type', 'start_time', 'end_time', 'notes']
-                        ].rename(columns={'override_id': 'ID', 'override_date': 'Date', 'override_type': 'Type',
-                                          'start_time': 'From', 'end_time': 'To', 'notes': 'Notes'})
-                        _lr_ov_tbl['From'] = _lr_ov_tbl['From'].fillna('Full day')
-                        _lr_ov_tbl['To']   = _lr_ov_tbl['To'].fillna('')
-                        st.dataframe(_lr_ov_tbl, hide_index=True, use_container_width=True,
-                                     column_config={"ID": None})
-                        _lr_del_opts = {r['override_id']: f"{r['override_date']} — {r['override_type']}"
-                                        for r in _lr_ovs}
-                        _lr_del_id = st.selectbox("Remove override?", options=list(_lr_del_opts.keys()),
-                                                   format_func=lambda x: _lr_del_opts[x],
-                                                   key=f"lr_del_sel_{_lr_sel}")
-                        if st.button("🗑️ Delete Selected Override", key=f"lr_del_btn_{_lr_sel}"):
-                            crm.delete_availability_override(_lr_del_id)
-                            st.success("Override removed."); st.rerun()
-                    else:
-                        st.info("No overrides set for this staff member.")
-
     with col_side:
         c_title, c_filter = st.columns([1.5, 1])
         c_title.subheader("📅 Schedule")
@@ -1055,6 +1010,59 @@ elif st.session_state.page == "Admin Console":
                             st.rerun()
         else:
             st.info("Add staff members above to configure shift patterns.")
+
+        # ---- AVAILABILITY OVERRIDES ----
+        st.divider()
+        st.markdown("**📅 Availability Overrides**")
+        st.caption("Record leave, training, sickness, or any other exception to a staff member's regular pattern.")
+        _ov_names = [r['Username'] for r in df_staff.to_dict('records')] if staff_list else []
+        if _ov_names:
+            _SM_OV_TYPES = ["Annual Leave", "Training", "Sick Leave", "Appointment", "Other"]
+            _ov_sel = st.selectbox("Staff Member", _ov_names, key="sm_ov_staff")
+            if _ov_sel:
+                with st.expander("➕ Add Override", expanded=False):
+                    with st.form(f"sm_override_{_ov_sel}", clear_on_submit=True):
+                        _sov_c1, _sov_c2, _sov_c3 = st.columns(3)
+                        _sov_date  = _sov_c1.date_input("Date")
+                        _sov_type  = _sov_c2.selectbox("Type", _SM_OV_TYPES)
+                        _sov_avail = _sov_c3.checkbox("Available (extra shift)", value=False,
+                                                       help="Check only for extra shifts. Leave unchecked for leave/sickness.")
+                        _sov_c4, _sov_c5, _sov_c6 = st.columns(3)
+                        _sov_full  = _sov_c4.checkbox("Full day", value=True)
+                        _sov_start = _sov_c5.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
+                        _sov_end   = _sov_c6.time_input("End Time",   value=datetime.strptime("17:00", "%H:%M").time())
+                        st.caption("Start/End times only apply when 'Full day' is unchecked.")
+                        _sov_notes = st.text_input("Notes (optional)")
+                        if st.form_submit_button("Add Override", type="primary"):
+                            crm.add_availability_override(
+                                _ov_sel, str(_sov_date), _sov_type, int(_sov_avail),
+                                None if _sov_full else _sov_start.strftime("%H:%M"),
+                                None if _sov_full else _sov_end.strftime("%H:%M"),
+                                _sov_notes.strip() or None, st.session_state['username'])
+                            st.success("Override added."); st.rerun()
+
+                _sm_ovs = crm.get_availability_overrides(_ov_sel)
+                if _sm_ovs:
+                    _sm_ov_tbl = pd.DataFrame(_sm_ovs)[
+                        ['override_id', 'override_date', 'override_type', 'start_time', 'end_time', 'notes']
+                    ].rename(columns={'override_id': 'ID', 'override_date': 'Date', 'override_type': 'Type',
+                                      'start_time': 'From', 'end_time': 'To', 'notes': 'Notes'})
+                    _sm_ov_tbl['From'] = _sm_ov_tbl['From'].fillna('Full day')
+                    _sm_ov_tbl['To']   = _sm_ov_tbl['To'].fillna('')
+                    st.dataframe(_sm_ov_tbl, hide_index=True, use_container_width=True,
+                                 column_config={"ID": None})
+                    _sm_del_opts = {r['override_id']: f"{r['override_date']} — {r['override_type']}"
+                                    for r in _sm_ovs}
+                    _sm_del_id = st.selectbox("Remove override?", options=list(_sm_del_opts.keys()),
+                                              format_func=lambda x: _sm_del_opts[x],
+                                              key=f"sm_del_ov_sel_{_ov_sel}")
+                    if st.button("🗑️ Delete Selected Override", key=f"sm_del_ov_btn_{_ov_sel}"):
+                        crm.delete_availability_override(_sm_del_id)
+                        st.success("Override removed."); st.rerun()
+                else:
+                    st.info("No overrides recorded for this staff member.")
+        else:
+            st.info("Add staff members above to record availability overrides.")
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
