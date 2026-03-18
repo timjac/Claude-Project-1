@@ -762,6 +762,15 @@ elif st.session_state.page == "Admin Console":
 
                 else:
                     # --- Staff table with per-row action buttons ---
+                    st.markdown("""<style>
+                    div[data-testid="stExpander"] button[data-testid="baseButton-secondary"],
+                    div[data-testid="stExpander"] button[data-testid="baseButton-primary"] {
+                        padding: 0.1rem 0.5rem !important;
+                        font-size: 0.78rem !important;
+                        line-height: 1.2 !important;
+                        min-height: 0 !important;
+                    }
+                    </style>""", unsafe_allow_html=True)
                     _pending_del = st.session_state.get('staff_del_id')
                     # Narrower action columns keep buttons compact
                     _col_w = [0.4, 2.5, 1.5, 1.2, 1.2]
@@ -776,9 +785,9 @@ elif st.session_state.page == "Admin Console":
                         _is_self = (st.session_state.get('username') == _uname)
                         _is_last = (len(df_staff) <= 1)
                         _rc = st.columns(_col_w)
-                        _rc[0].write(str(_sid))
-                        _rc[1].write(_uname)
-                        _rc[2].write(_urole)
+                        _rc[0].markdown(f"<p style='margin:0;padding-top:0.25rem;font-size:0.9rem'>{_sid}</p>", unsafe_allow_html=True)
+                        _rc[1].markdown(f"<p style='margin:0;padding-top:0.25rem;font-size:0.9rem'>{_uname}</p>", unsafe_allow_html=True)
+                        _rc[2].markdown(f"<p style='margin:0;padding-top:0.25rem;font-size:0.9rem'>{_urole}</p>", unsafe_allow_html=True)
 
                         if _pending_del == _sid:
                             # Row is in "confirm delete" state — replace buttons with confirm/cancel
