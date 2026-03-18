@@ -860,6 +860,90 @@ class ClinicCRM:
         self.close()
         return True
 
+    def get_all_staff_availability_range(self, usernames, from_date, to_date):
+        """
+        Bulk availability computation for multiple staff over a date range.
+        Returns {username: {date_str: {is_working, start_time, end_time, override_type, source}}}.
+        Uses 3 queries total regardless of staff count or date range length.
+        """
+        if not usernames:
+            return {}
+        if isinstance(from_date, str):
+            from_date = datetime.date.fromisoformat(from_date)
+        if isinstance(to_date, str):
+            to_date = datetime.date.fromisoformat(to_date)
+
+        self.connect()
+        ph = ','.join('?' for _ in usernames)
+
+        # 1. Active patterns for these users
+        self.cursor.execute(
+            f"SELECT * FROM staff_shift_patterns WHERE username IN ({ph}) AND is_active = 1",
+            list(usernames)
+        )
+        patterns = {row['username']: dict(row) for row in self.cursor.fetchall()}
+
+        # 2. Shift days for those patterns
+        pattern_ids = [p['pattern_id'] for p in patterns.values()]
+        shift_days_by_pattern = {}
+        if pattern_ids:
+            ph2 = ','.join('?' for _ in pattern_ids)
+            self.cursor.execute(
+                f"SELECT * FROM staff_shift_days WHERE pattern_id IN ({ph2})", pattern_ids
+            )
+            for row in self.cursor.fetchall():
+                pid = row['pattern_id']
+                shift_days_by_pattern.setdefault(pid, {})[(row['week_number'], row['day_of_week'])] = dict(row)
+
+        # 3. All overrides in the date range for these users
+        self.cursor.execute(
+            f"""SELECT * FROM staff_availability_overrides
+                WHERE username IN ({ph}) AND override_date >= ? AND override_date <= ?
+                ORDER BY created_at DESC""",
+            list(usernames) + [str(from_date), str(to_date)]
+        )
+        overrides = {}
+        for row in self.cursor.fetchall():
+            key = (row['username'], row['override_date'])
+            overrides.setdefault(key, dict(row))  # most recent per user+date wins
+        self.close()
+
+        # Compute availability matrix in Python
+        result = {u: {} for u in usernames}
+        current = from_date
+        while current <= to_date:
+            ds = str(current)
+            for username in usernames:
+                ov = overrides.get((username, ds))
+                if ov:
+                    result[username][ds] = {
+                        'is_working': bool(ov['is_available']), 'start_time': ov['start_time'],
+                        'end_time': ov['end_time'], 'override_type': ov['override_type'],
+                        'notes': ov['notes'], 'source': 'override'
+                    }
+                    continue
+                pattern = patterns.get(username)
+                if not pattern:
+                    result[username][ds] = {'is_working': None, 'source': 'none'}
+                    continue
+                anchor = datetime.date.fromisoformat(pattern['anchor_date'])
+                days_since = (current - anchor).days
+                if days_since < 0:
+                    result[username][ds] = {'is_working': None, 'source': 'before_start'}
+                    continue
+                period = 7 if pattern['pattern_type'] == 'weekly' else 14
+                day_in_period = days_since % period
+                wk = (day_in_period // 7) + 1
+                dow = day_in_period % 7
+                shift = shift_days_by_pattern.get(pattern['pattern_id'], {}).get((wk, dow))
+                if shift:
+                    result[username][ds] = {'is_working': True, 'start_time': shift['start_time'],
+                                            'end_time': shift['end_time'], 'source': 'pattern'}
+                else:
+                    result[username][ds] = {'is_working': False, 'source': 'pattern'}
+            current += datetime.timedelta(days=1)
+        return result
+
     def get_setting(self, key, default_value=""):
         self.connect()
         self.cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key = ?", (key,))

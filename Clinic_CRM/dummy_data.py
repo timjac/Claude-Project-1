@@ -313,6 +313,87 @@ def generate_data():
 
     conn.commit()
     conn.close()
+
+    # ==========================================
+    # 4. SEED STAFF ACCOUNTS AND SHIFT PATTERNS
+    # ==========================================
+    # Usernames match the provider names used in appointment records so the rota
+    # lookup connects automatically when staff are filtered in the diary.
+    print("Seeding staff accounts and shift patterns...")
+
+    STAFF_SEEDS = [
+        ("Dr. Elrond",    "elrond123",   "Admin"),   # Senior physician & admin
+        ("Nurse Pomfrey", "pomfrey123",  "Staff"),   # Full time, fortnightly rotating shifts
+        ("Maester Luwin", "luwin123",    "Staff"),   # Full time, compressed 4-day week
+        ("Dr. McCoy",     "mccoy123",    "Staff"),   # Full time, standard Mon–Fri
+        ("Yennefer",      "yennefer123", "Staff"),   # Part time 25 h/week
+    ]
+    for username, password, role in STAFF_SEEDS:
+        crm.add_staff_member(username, password, role)
+
+    # Anchor Mondays — all patterns start on a Monday.
+    # ANCHOR_W1 is the most recent Monday; ANCHOR_FN is one week earlier so that
+    # Nurse Pomfrey's fortnightly pattern is currently mid-cycle (week 2 today).
+    ANCHOR_W1 = "2026-03-16"
+    ANCHOR_FN = "2026-03-09"
+
+    # Dr. Elrond — full time weekly, Mon–Fri 08:00–16:00
+    crm.save_shift_pattern("Dr. Elrond", "weekly", ANCHOR_W1, [
+        (1, 0, "08:00", "16:00"), (1, 1, "08:00", "16:00"), (1, 2, "08:00", "16:00"),
+        (1, 3, "08:00", "16:00"), (1, 4, "08:00", "16:00"),
+    ], "admin")
+
+    # Nurse Pomfrey — full time fortnightly, rotating early/late
+    # Week 1: early shift 07:00–15:00 | Week 2: late shift 11:00–19:00
+    crm.save_shift_pattern("Nurse Pomfrey", "fortnightly", ANCHOR_FN, [
+        (1, 0, "07:00", "15:00"), (1, 1, "07:00", "15:00"), (1, 2, "07:00", "15:00"),
+        (1, 3, "07:00", "15:00"), (1, 4, "07:00", "15:00"),
+        (2, 0, "11:00", "19:00"), (2, 1, "11:00", "19:00"), (2, 2, "11:00", "19:00"),
+        (2, 3, "11:00", "19:00"), (2, 4, "11:00", "19:00"),
+    ], "admin")
+
+    # Maester Luwin — full time, compressed Mon–Thu 08:00–18:00 (4 × 10 h = 40 h)
+    crm.save_shift_pattern("Maester Luwin", "weekly", ANCHOR_W1, [
+        (1, 0, "08:00", "18:00"), (1, 1, "08:00", "18:00"),
+        (1, 2, "08:00", "18:00"), (1, 3, "08:00", "18:00"),
+    ], "admin")
+
+    # Dr. McCoy — full time weekly, Mon–Fri 09:00–17:00
+    crm.save_shift_pattern("Dr. McCoy", "weekly", ANCHOR_W1, [
+        (1, 0, "09:00", "17:00"), (1, 1, "09:00", "17:00"), (1, 2, "09:00", "17:00"),
+        (1, 3, "09:00", "17:00"), (1, 4, "09:00", "17:00"),
+    ], "admin")
+
+    # Yennefer — part time weekly, Mon–Fri 09:00–14:00 (5 h × 5 days = 25 h)
+    crm.save_shift_pattern("Yennefer", "weekly", ANCHOR_W1, [
+        (1, 0, "09:00", "14:00"), (1, 1, "09:00", "14:00"), (1, 2, "09:00", "14:00"),
+        (1, 3, "09:00", "14:00"), (1, 4, "09:00", "14:00"),
+    ], "admin")
+
+    # Sample overrides — demonstrate the availability feature across all types
+    _today = datetime.now().date()
+    _days_to_next_mon = (7 - _today.weekday()) % 7 or 7
+    _next_mon = _today + timedelta(days=_days_to_next_mon)
+
+    crm.add_availability_override(
+        "Dr. Elrond", str(_next_mon),           "Annual Leave", 0, None, None,
+        "Rivendell council meeting", "admin")
+    crm.add_availability_override(
+        "Dr. Elrond", str(_next_mon + timedelta(1)), "Annual Leave", 0, None, None,
+        "Rivendell council meeting", "admin")
+    crm.add_availability_override(
+        "Nurse Pomfrey", str(_next_mon + timedelta(2)), "Training", 0, None, None,
+        "First Aid refresher", "admin")
+    crm.add_availability_override(
+        "Dr. McCoy",  str(_today - timedelta(7)), "Sick Leave", 0, None, None,
+        None, "admin")
+    crm.add_availability_override(
+        "Maester Luwin", str(_next_mon + timedelta(3)), "Appointment", 0,
+        "09:00", "11:00", "Dental appointment", "admin")
+    crm.add_availability_override(
+        "Yennefer", str(_next_mon), "Training", 0, None, None,
+        "Clinical induction — new equipment", "admin")
+
     print("Done! Middle-earth database is fully populated.")
 
 

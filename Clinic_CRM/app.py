@@ -199,10 +199,29 @@ if st.session_state.page == "Lobby":
             else:
                 diary_label = "📅 Schedule"
             if appts:
-                df_schedule = pd.DataFrame(appts)
-                df_schedule['Date'] = pd.to_datetime(df_schedule['Date']).dt.strftime('%d/%m/%Y')
-                hide_cols = {"Patient ID": None, "Date": None if start_d == end_d else st.column_config.TextColumn("Date", width="small")}
-                st.dataframe(df_schedule, hide_index=True, use_container_width=True, column_config=hide_cols, height=400)
+                if start_d == end_d:
+                    # Single-day view: group by provider with rota status header
+                    _providers_today = sorted(set(a['Provider'] for a in appts))
+                    for _sp in _providers_today:
+                        _sp_appts = sorted([a for a in appts if a['Provider'] == _sp], key=lambda x: x['Time'])
+                        _sav = crm.get_staff_availability(_sp, start_d)
+                        _ph_c1, _ph_c2 = st.columns([3, 1])
+                        if _sav['source'] == 'override' and not _sav['is_working']:
+                            _ph_c1.markdown(f"👤 **{_sp}** — ⚠️ *{_sav['override_type']}*{(' — ' + _sav['notes']) if _sav.get('notes') else ''}")
+                        elif _sav['source'] == 'pattern' and _sav['is_working']:
+                            _ph_c1.markdown(f"👤 **{_sp}** · {_sav['start_time']} – {_sav['end_time']}")
+                        else:
+                            _ph_c1.markdown(f"👤 **{_sp}**")
+                        _ph_c2.caption(f"{len(_sp_appts)} appt{'s' if len(_sp_appts) != 1 else ''}")
+                        _sp_df = pd.DataFrame(_sp_appts)[['Time', 'Patient', 'Reason']]
+                        st.dataframe(_sp_df, hide_index=True, use_container_width=True)
+                        st.write("")
+                else:
+                    # Multi-day view: flat table
+                    df_schedule = pd.DataFrame(appts)
+                    df_schedule['Date'] = pd.to_datetime(df_schedule['Date']).dt.strftime('%d/%m/%Y')
+                    st.dataframe(df_schedule, hide_index=True, use_container_width=True,
+                                 column_config={"Patient ID": None}, height=400)
             else:
                 st.success("No appointments scheduled for this timeframe.")
 
@@ -684,12 +703,23 @@ elif st.session_state.page == "Dashboard":
 
                     st.subheader("🟢 Upcoming")
                     if upcoming:
-                        df_up = pd.DataFrame(upcoming, columns=['ID', 'Date', 'Time', 'Provider', 'Reason', 'Status'])
-                        st.dataframe(df_up.style.map(color_status, subset=['Status']), hide_index=True, use_container_width=True, column_config={"ID": None})
-                        appt_mapping = {a[0]: f"{a[1]} at {a[2]} with {a[3]}" for a in upcoming}
-                        cancel_id = st.selectbox("Cancel an upcoming appointment?", options=list(appt_mapping.keys()), format_func=lambda x: appt_mapping[x])
-                        if cancel_id and st.button("🚫 Cancel Selected Appointment"):
-                            crm.update_appointment_status(cancel_id, APPT_CANCELLED); st.rerun()
+                        for _ua_id, _ua_date, _ua_time, _ua_prov, _ua_reason, _ua_status in upcoming:
+                            _uav = crm.get_staff_availability(_ua_prov, _ua_date)
+                            with st.container(border=True):
+                                _uc1, _uc2, _uc3 = st.columns([1.5, 4, 1])
+                                _uc1.markdown(f"**{_ua_date}**  \n{_ua_time}")
+                                if _uav['source'] == 'override' and not _uav['is_working']:
+                                    _prov_line = f"⚠️ {_ua_prov} — {_uav['override_type']}"
+                                elif _uav['source'] == 'pattern' and _uav['is_working']:
+                                    _prov_line = f"👤 {_ua_prov} · {_uav['start_time']}–{_uav['end_time']}"
+                                elif _uav['source'] == 'pattern' and not _uav['is_working']:
+                                    _prov_line = f"⚠️ {_ua_prov} — not rostered this day"
+                                else:
+                                    _prov_line = f"👤 {_ua_prov}"
+                                _uc2.markdown(f"**{_ua_reason}**  \n{_prov_line}")
+                                if _uc3.button("🚫", key=f"cancel_appt_{_ua_id}", help="Cancel appointment", use_container_width=True):
+                                    crm.update_appointment_status(_ua_id, APPT_CANCELLED)
+                                    st.rerun()
                     else: st.info("No upcoming appointments.")
 
                     if noshow:
@@ -2509,6 +2539,66 @@ elif st.session_state.page == "Admin Console":
             _DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             _OVERRIDE_TYPES = ["Annual Leave", "Training", "Sick Leave", "Appointment", "Other"]
 
+            # ---- 14-DAY AVAILABILITY OVERVIEW ----
+            _ov_from = date.today()
+            _ov_to   = _ov_from + timedelta(days=13)
+            _ov_matrix = crm.get_all_staff_availability_range(_all_staff, _ov_from, _ov_to)
+            _ov_dates  = [_ov_from + timedelta(days=i) for i in range(14)]
+
+            def _fmt_rota_cell(av):
+                if av['source'] in ('none', 'before_start') or av.get('is_working') is None:
+                    return '—'
+                if av['source'] == 'override':
+                    if av['is_working']:
+                        hrs = f"{av['start_time']}–{av['end_time']}" if av.get('start_time') else 'All day'
+                        return f"Extra ({hrs})"
+                    return av.get('override_type', 'Override')
+                return f"{av['start_time']}–{av['end_time']}" if av['is_working'] else 'Off'
+
+            def _color_rota_cell(val):
+                if val == '—':        return 'color: #cccccc'
+                if val == 'Off':      return 'background-color: #f0f0f0; color: #999999'
+                if any(t in val for t in ['Leave', 'Sick']): return 'background-color: #FFCCCB; color: #721c24'
+                if 'Training' in val: return 'background-color: #FFF3CD; color: #856404'
+                if 'Appointment' in val: return 'background-color: #D1ECF1; color: #0c5460'
+                if 'Extra' in val:    return 'background-color: #E2F0FB; color: #0a4a7a; font-style: italic'
+                return 'background-color: #D4EDDA; color: #155724'   # working hours
+
+            _ov_rows = {
+                _d.strftime('%a %d %b'): {
+                    _u: _fmt_rota_cell(_ov_matrix[_u].get(str(_d), {'source': 'none', 'is_working': None}))
+                    for _u in _all_staff
+                }
+                for _d in _ov_dates
+            }
+            _ov_df = pd.DataFrame.from_dict(_ov_rows, orient='index', columns=_all_staff)
+
+            with st.expander("📊 14-Day Availability Overview", expanded=True):
+                st.dataframe(_ov_df.style.map(_color_rota_cell), use_container_width=True, height=530)
+
+                # Conflict detection — appointments booked on a provider's unavailable days
+                _all_sched = get_clinic_schedule(crm, _ov_from, _ov_to)
+                _conflicts = []
+                for _ca in _all_sched:
+                    _prov = _ca['Provider']
+                    if _prov in _ov_matrix:
+                        _cav = _ov_matrix[_prov].get(_ca['Date'], {})
+                        if _cav.get('is_working') is False or (
+                            _cav.get('source') == 'override' and not _cav.get('is_working')
+                        ):
+                            _reason = _cav.get('override_type', 'Day off per rota')
+                            _conflicts.append(
+                                f"**{_ca['Date']}** {_ca['Time']} · {_prov} · {_ca['Patient']} — {_reason}")
+                if _conflicts:
+                    st.error(f"⚠️ {len(_conflicts)} scheduling conflict{'s' if len(_conflicts) != 1 else ''} detected:")
+                    for _cf in _conflicts[:8]:
+                        st.markdown(f"- {_cf}")
+                    if len(_conflicts) > 8:
+                        st.caption(f"...and {len(_conflicts) - 8} more.")
+                else:
+                    st.success("✅ No conflicts — all appointments fall within rostered hours.")
+
+            st.divider()
             _rota_staff = st.selectbox("Staff Member", _all_staff, key="rota_staff_select")
 
             if _rota_staff:
