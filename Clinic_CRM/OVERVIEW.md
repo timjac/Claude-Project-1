@@ -59,6 +59,7 @@ Several values that might otherwise be hardcoded are stored in `system_settings`
 | `admin_roles` | Which roles have access to the Admin Console |
 | `max_schedule_days` | Maximum date range for the lobby schedule view |
 | `report_theme_presets` | The six named colour/font presets in the Report Designer |
+| `colour_palette` | JSON array of `{name, hex}` objects used in all zone/trend colour selectors |
 
 Available PDF fonts are built dynamically at startup by scanning `assets/fonts/` for `.ttf` files and combining them with the built-in PDF fonts (Helvetica, Times, Courier). No hardcoded font list.
 
@@ -89,7 +90,7 @@ Tests follow a two-stage lifecycle:
 Each result records who took the test, when, who logged the result, and when. Results are linked to test definitions (`test_definitions`) which specify the unit, safe target range, and chart configuration (stored as JSON).
 
 #### Test Groups
-Tests are organised into **panels** via the `test_groups` table. A panel (e.g., "Cholesterol", "Blood Pressure") is a first-class entity with its own `chart_type`, `trend_chart_type`, and optional `description`. Individual tests in `test_definitions` link to their panel via a `group_id` FK. `chart_type` lives at the group level — all tests in a panel share the same chart style, enforced by the admin UI.
+Tests are organised into **groups** via the `test_groups` table. A group (e.g., "Cholesterol", "Blood Pressure") is a first-class entity with its own `chart_type`, `trend_chart_type`, `description`, and `trend_config`. Individual tests in `test_definitions` link to their group via a `group_id` FK. `chart_type` lives at the group level — all tests in a group share the same chart style, enforced by the admin UI.
 
 `test_definitions` retains a legacy `test_group` text column and `chart_type` column for backward compatibility. All queries use `COALESCE(tg.chart_type, td.chart_type, 'gauge')` so results rows with no linked definition still render safely.
 
@@ -102,22 +103,32 @@ Tests are organised into **panels** via the `test_groups` table. A panel (e.g., 
 | `bar` | Total / HDL / LDL Cholesterol | Horizontal bars against a zone-shaded background |
 | `none` | Weight, Height | Large typographic display only — no chart |
 
-The `chart_config` JSON for each test definition stores the axis range, zone boundaries (from/to/colour/label), and type-specific options (e.g. `gauge_style`, `dots` list for the `dot` type, bar colours for the `bar` type).
+The `chart_config` JSON for each test definition stores the axis range, zone boundaries (from/to/colour/label), and type-specific options (e.g. `gauge_style`, `dots` list for the `dot` type, bar colours for the `bar` type). Colours are resolved from the clinic's named colour palette at save time — the JSON always stores hex values so no palette lookups are needed at render time.
 
 All chart types expand their axis dynamically if a value falls outside the configured range (elastic bounds), so outliers are always visible rather than clipped.
 
-Trend charts are generated automatically when a patient has more than one result for a given test. The trend style is set at the panel level via `test_groups.trend_chart_type` (`line`, `bp_trend`, `multi_trend`).
+**Trend charts** are generated automatically when a patient has more than one result for a given test. The trend style is set at the group level via `test_groups.trend_config` (JSON) and `test_groups.trend_chart_type`:
+
+| `trend_chart_type` | Used for | Function |
+|---|---|---|
+| `line` | Single-value tests (gauge, none) | `create_trend_chart` |
+| `bp_trend` | Two-dot groups | `create_bp_trend_chart` — splits data by first/second dot name in config |
+| `multi_trend` | Bar groups | `create_multi_trend_chart` — one line per test name |
+
+`trend_config` stores `line_colour`, `line_style` (`solid`/`dashed`), and `show_markers` per group.
 
 ### Appointments
 Appointments are scheduled per patient with a date, time, provider, and reason. Past appointments in `Scheduled` status are auto-resolved when a patient record is opened: if an encounter exists on that date, the appointment becomes `Completed`; otherwise it becomes `No Show`.
 
-The clinic also has a schedule view across all patients for a given date range (Today / Tomorrow / Next 7 Days / Custom Range).
+The booking UI shows a **day-view availability table** for the selected provider and date — existing bookings are listed above the form so staff can see conflicts before booking.
+
+The clinic also has a schedule view across all patients for a given date range (Today / Tomorrow / Next 7 Days / Custom Range), with a **provider filter** to narrow to a single practitioner's diary.
 
 ### PDF Health Reports
 Staff can generate a branded PDF health report for any patient. The report:
 - Covers a configurable date range
 - Allows test groups to be included or excluded, and their order changed via drag-and-drop (`streamlit_sortables`)
-- Supports per-test note overrides via an inline data editor
+- Supports per-test note overrides via an inline data editor (shows Latest date and result count per test)
 - Includes a Practitioner's Opening Statement and a Next Steps section
 - Embeds the appropriate chart (gauge, dot, bar, trend) for each test
 - Shows a history table of previous results
@@ -131,18 +142,37 @@ Admin users can manage staff accounts (add/remove users, change passwords, set r
 
 The Admin Console has three tabs:
 
-**Staff Management** — add users, view the staff directory, change passwords, and delete accounts (with a guard preventing self-deletion and deletion of the last account).
+**Staff Management** — add users via a collapsible form. A "Manage Existing Staff" expander shows a per-row table with inline action buttons:
+- **Password** — opens an inline change-password form; Back returns to the table
+- **Delete** — two-click confirmation (first click arms, second confirms); disabled for own account and last remaining account
 
 **Report Designer** — configure the PDF theme (colours, font, border radius, spacing) with six named presets loaded from `system_settings`. A live PDF preview renders in real time alongside the controls. Saving writes the theme back to `system_settings` and applies to all future reports.
 
-**Test Dictionary** — define clinical tests and how they render. Split into two sections:
-- **Test Panels** — view existing group-level entities (`test_groups`): panel name, chart style, trend style, description.
-- **Add New Test or Panel** — a multi-step zone-based editor:
-  1. Select chart type (`gauge`, `dot`, `bar`, `none`)
-  2. Configure type-specific options (gauge style, axis range, dot definitions, bar colours)
-  3. Define colour zones interactively (add/remove/reorder zones with `from`/`to` bounds, colour pickers, labels, and a transparent option)
-  4. A live chart preview updates as zones are configured
-  5. Set test metadata (name, panel, unit, target) and save
+**Test Dictionary** — define clinical tests and how they render. Contains three sections:
+
+- **Colour Palette** — manage the clinic's named colour palette (`system_settings` key `colour_palette`). Add colours by name + hex picker; includes a "Transparent" shortcut checkbox. All zone colour and trend colour selectors use this palette — no free-form colour pickers.
+
+- **Test Groups** — view existing group-level entities (`test_groups`): group name, chart style, trend style, description. Includes an **Edit** flow to update zone config, trend tuning, and metadata for any existing group.
+
+- **Add New Test Group** — a multi-step zone-based editor:
+  1. Select chart type (`gauge`, `dot`, `bar`, `none`) with a caption explaining how many test definitions each type creates
+  2. Configure type-specific options (gauge style, axis range/zones, dot names/labels/colours, bar names/colours/zones)
+  3. Configure trend chart appearance: line colour (palette), line style (solid/dashed), show markers toggle
+  4. Set test metadata (group name, unit, target, description) and save
+  5. **Live preview** (right column) renders a full PDF banner — identical to the printed report — using dummy data: snapshot chart, current value, history table, and trend chart. Reflects the current designer theme.
+
+---
+
+## Lobby
+
+The lobby has two panels:
+
+**Left column — tabbed:**
+- **Patient Directory** — searchable patient list; click a row to open the patient dashboard
+- **Pending Tests** — lists all `Pending` test results across all patients (Patient, Test, Ordered Date, Ordered By); click a row to open that patient
+
+**Right column:**
+- **Clinic Schedule** — upcoming appointments across all patients for a selected date range, with a **provider filter** input to narrow to one practitioner's diary
 
 ---
 
@@ -156,13 +186,13 @@ The Admin Console has three tabs:
 | `encounters` | Clinical encounters (date, type, provider) |
 | `encounter_notes` | Free-text notes linked to encounters |
 | `test_results` | Test results with two-stage lifecycle (Pending/Complete) |
-| `test_groups` | First-class panel entity — holds `chart_type`, `trend_chart_type`, and `description` at the group level |
+| `test_groups` | First-class group entity — holds `chart_type`, `trend_chart_type`, `trend_config`, and `description` at the group level |
 | `test_definitions` | Individual test metadata (unit, target, chart config JSON); linked to `test_groups` via `group_id` |
 | `appointments` | Scheduled appointments per patient |
 | `report_log` | Header record of each generated PDF report (includes `practitioner_statement` and `next_steps`) |
 | `report_contents` | Line items (tests and notes) for each report |
 | `staff` | Staff accounts with hashed passwords and roles |
-| `system_settings` | Key-value store for clinic-wide settings (footer text, PDF theme, encounter types, staff roles, schedule limit, theme presets) |
+| `system_settings` | Key-value store for clinic-wide settings (footer text, PDF theme, encounter types, staff roles, schedule limit, theme presets, colour palette) |
 
 ---
 
