@@ -733,31 +733,83 @@ elif st.session_state.page == "Admin Console":
         if staff_list:
             st.divider()
             with st.expander("⚙️ Manage Existing Staff", expanded=False):
-                staff_dict = {s['Staff ID']: f"{s['Username']} ({s['Role']})" for _, s in df_staff.iterrows()}
-                selected_staff_id = st.selectbox("Select Staff Member", options=list(staff_dict.keys()), format_func=lambda x: staff_dict[x])
-                action = st.radio("Action to perform:", ["Change Password", "Delete User"], horizontal=True)
-                st.divider()
 
-                if action == "Change Password":
-                    with st.form("change_pwd_form", clear_on_submit=True):
-                        new_pwd = st.text_input("New Password", type="password")
-                        if st.form_submit_button("💾 Update Password", type="primary"):
-                            if new_pwd.strip():
-                                crm.connect()
-                                crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?", (hash_password(new_pwd.strip()), selected_staff_id))
-                                crm.conn.commit(); crm.close()
-                                st.success("Password successfully updated!"); st.rerun()
-                elif action == "Delete User":
-                    selected_username = staff_dict[selected_staff_id].split(" (")[0]
-                    if st.session_state.get('username') == selected_username: st.error("⚠️ You cannot delete your own account.")
-                    elif len(staff_dict) <= 1: st.error("⛔ **Action Denied:** Cannot delete the last remaining staff member.")
+                # --- Change Password view ---
+                if st.session_state.get('staff_chpwd_id'):
+                    _cpid = st.session_state['staff_chpwd_id']
+                    _cp_rows = df_staff[df_staff['Staff ID'] == _cpid]
+                    if not _cp_rows.empty:
+                        _cp_username = _cp_rows.iloc[0]['Username']
+                        _cp_role     = _cp_rows.iloc[0]['Role']
+                        st.markdown(f"#### 🔑 Change Password — **{_cp_username}**")
+                        st.caption(f"ID: {_cpid}  ·  Role: {_cp_role}")
+                        st.divider()
+                        with st.form("change_pwd_form", clear_on_submit=True):
+                            new_pwd = st.text_input("New Password", type="password")
+                            _col_s, _col_c = st.columns(2)
+                            _do_save   = _col_s.form_submit_button("💾 Update Password", type="primary", use_container_width=True)
+                            _do_cancel = _col_c.form_submit_button("← Back to Staff List", use_container_width=True)
+                            if _do_save:
+                                if new_pwd.strip():
+                                    crm.connect()
+                                    crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?",
+                                                       (hash_password(new_pwd.strip()), _cpid))
+                                    crm.conn.commit(); crm.close()
+                                    del st.session_state['staff_chpwd_id']
+                                    st.success("Password updated!"); st.rerun()
+                                else:
+                                    st.warning("Please enter a new password.")
+                            if _do_cancel:
+                                del st.session_state['staff_chpwd_id']
+                                st.rerun()
+                        st.markdown("<script>window.scrollTo(0,document.body.scrollHeight);</script>",
+                                    unsafe_allow_html=True)
                     else:
-                        st.warning(f"Permenantly delete **{selected_username}**?")
-                        if st.button("🗑️ Confirm Delete User", type="primary"):
+                        del st.session_state['staff_chpwd_id']
+                        st.rerun()
+
+                else:
+                    # --- Staff table with per-row action buttons ---
+                    _pending_del = st.session_state.get('staff_del_id')
+                    _col_w = [0.5, 2.5, 1.5, 2.2, 1.5]
+                    _hcols = st.columns(_col_w)
+                    for _hc, _hl in zip(_hcols, ["**ID**", "**Username**", "**Role**", "", ""]):
+                        _hc.markdown(_hl)
+
+                    for _, _row in df_staff.iterrows():
+                        _sid      = _row['Staff ID']
+                        _uname    = _row['Username']
+                        _urole    = _row['Role']
+                        _is_self  = (st.session_state.get('username') == _uname)
+                        _is_last  = (len(df_staff) <= 1)
+                        _rc = st.columns(_col_w)
+                        _rc[0].write(str(_sid))
+                        _rc[1].write(_uname)
+                        _rc[2].write(_urole)
+                        if _rc[3].button("🔑 Change Password", key=f"chpwd_{_sid}", use_container_width=True):
+                            st.session_state.pop('staff_del_id', None)
+                            st.session_state['staff_chpwd_id'] = _sid
+                            st.rerun()
+                        if _rc[4].button("🗑️ Delete", key=f"del_{_sid}", use_container_width=True,
+                                         disabled=(_is_self or _is_last)):
+                            st.session_state['staff_del_id'] = _sid
+                            st.rerun()
+
+                    # Inline delete confirmation (appears below table)
+                    if _pending_del and _pending_del in df_staff['Staff ID'].values:
+                        _del_uname = df_staff[df_staff['Staff ID'] == _pending_del].iloc[0]['Username']
+                        st.divider()
+                        st.warning(f"Permanently delete **{_del_uname}**? This cannot be undone.")
+                        _dc1, _dc2 = st.columns(2)
+                        if _dc1.button("Yes, Delete", type="primary", use_container_width=True, key="confirm_del_staff"):
                             crm.connect()
-                            crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (selected_staff_id,))
+                            crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (_pending_del,))
                             crm.conn.commit(); crm.close()
+                            del st.session_state['staff_del_id']
                             st.success("User deleted."); time.sleep(1); st.rerun()
+                        if _dc2.button("Cancel", use_container_width=True, key="cancel_del_staff"):
+                            del st.session_state['staff_del_id']
+                            st.rerun()
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
