@@ -140,13 +140,21 @@ Report generation is logged to `report_log` and `report_contents` for audit purp
 ### Staff & Admin
 Admin users can manage staff accounts (add/remove users, change passwords, set roles). System-wide settings such as the report footer text and PDF theme are stored in the `system_settings` table.
 
-The Admin Console has three tabs:
+The Admin Console has four tabs:
 
 **Staff Management** — add users via a collapsible form. A "Manage Existing Staff" expander shows a per-row table with inline action buttons:
 - **Password** — opens an inline change-password form; Back returns to the table
 - **Delete** — two-click confirmation (first click arms, second confirms); disabled for own account and last remaining account
 
 **Report Designer** — configure the PDF theme (colours, font, border radius, spacing) with six named presets loaded from `system_settings`. A live PDF preview renders in real time alongside the controls. Saving writes the theme back to `system_settings` and applies to all future reports.
+
+**Staff Rota** — manage staff working patterns and availability exceptions:
+
+- **Shift Patterns** — each staff member can have one active pattern, either weekly (7-day cycle) or fortnightly (14-day cycle). The pattern is anchored to a Monday start date so fortnightly cycles stay correctly aligned. An interactive day grid lets admins set working/off and start/end times per day. Saving a new pattern automatically deactivates the previous one.
+
+- **Availability Overrides** — record exceptions to the regular pattern (Annual Leave, Training, Sick Leave, Appointment, Other). Overrides can be full-day or cover a partial time range, and an "Available" flag supports extra shifts. Overrides always take precedence over the base pattern when computing availability for a given date.
+
+The appointment booking form queries the rota automatically: it shows scheduled hours in green, a warning when the provider is not rostered on that day, and a leave/sickness alert when an override is active.
 
 **Test Dictionary** — define clinical tests and how they render. Contains three sections:
 
@@ -189,6 +197,9 @@ The lobby has two panels:
 | `test_groups` | First-class group entity — holds `chart_type`, `trend_chart_type`, `trend_config`, and `description` at the group level |
 | `test_definitions` | Individual test metadata (unit, target, chart config JSON); linked to `test_groups` via `group_id` |
 | `appointments` | Scheduled appointments per patient |
+| `staff_shift_patterns` | Active shift pattern per staff member (weekly/fortnightly, anchor date) |
+| `staff_shift_days` | Per-day working hours within a pattern (week number, day of week, start/end time) |
+| `staff_availability_overrides` | Exception records overriding the pattern for a specific date (leave, training, sickness, etc.) |
 | `report_log` | Header record of each generated PDF report (includes `practitioner_statement` and `next_steps`) |
 | `report_contents` | Line items (tests and notes) for each report |
 | `staff` | Staff accounts with hashed passwords and roles |
