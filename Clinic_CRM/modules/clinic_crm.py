@@ -160,6 +160,12 @@ class ClinicCRM:
             );
         """)
 
+        # Add trend_config column idempotently (may already exist in upgraded DBs)
+        try:
+            self.cursor.execute("ALTER TABLE test_groups ADD COLUMN trend_config TEXT")
+        except:
+            pass  # column already exists
+
         # --- Table: Test Definitions ---
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_definitions (
@@ -448,6 +454,15 @@ class ClinicCRM:
                     "radius": 2, "spacing": 9, "font": "Open Sans"
                 }
             })),
+            ("colour_palette", json.dumps([
+                {"name": "Safe Green",    "hex": "#D4EDDA"},
+                {"name": "Alert Red",     "hex": "#FFCCCB"},
+                {"name": "Warning Amber", "hex": "#FFE4B5"},
+                {"name": "Low Blue",      "hex": "#ADD8E6"},
+                {"name": "Navy",          "hex": "#003366"},
+                {"name": "Neutral Grey",  "hex": "#E0E0E0"},
+                {"name": "Transparent",   "hex": "transparent"}
+            ])),
         ]
         self.cursor.executemany(
             "INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)",

@@ -10,7 +10,8 @@ from modules.reports import create_custom_report_pdf
 from app_functions import (
     go_to_lobby, go_to_patient, get_patient_details, get_patient_encounters, get_patient_notes,
     get_patient_tests, get_field_definitions, calculate_age, get_notes_for_encounter, log_report_generation,
-    hash_password, check_credentials, login_screen, get_patient_appointments, get_clinic_schedule
+    hash_password, check_credentials, login_screen, get_patient_appointments, get_clinic_schedule,
+    get_provider_schedule, get_all_pending_tests
 )
 from constants import (
     APPT_SCHEDULED, APPT_COMPLETED, APPT_NO_SHOW, APPT_CANCELLED,
@@ -63,6 +64,8 @@ if "shutdown_mode" not in st.session_state:
 
 # --- SHUTDOWN SCREEN ---
 if st.session_state.shutdown_mode:
+    st.markdown("<script>window.scrollTo(0, 0);</script>", unsafe_allow_html=True)
+    st.toast("System shutting down...", icon="🔴")
     st.markdown("""
         <div style='text-align: center; padding-top: 50px;'>
             <h1 style='color: #2E8B57;'>✅ System Shutdown Complete</h1>
@@ -124,38 +127,58 @@ if st.session_state.page == "Lobby":
     col_main, col_side = st.columns([1, 1], gap="large")
     
     with col_main:
-        st.subheader("📋 Patient Directory")
-        search_query = st.text_input("🔍 Find a Patient", placeholder="Search by Name, Phone, Postcode...")
-        
-        if search_query:
-            full_data = crm.get_patient_directory()
-            results = [p for p in full_data if search_query.lower() in str(p.values()).lower()]
-            
-            if results:
-                st.success(f"Found {len(results)} patients matching '{search_query}'.")
-                for p in results:
-                    with st.container(border=True):
-                        c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-                        c1.write(f"**ID:** {p['patient_id']}")
-                        patient_name = ' '.join(filter(None, (p.get(f, '') for f in _NAME_FIELDS)))
-                        c2.write(f"**{patient_name}**")
-                        caption_parts = [f"{label}: {p.get(fn, 'N/A')}" for fn, label in _CAPTION_FIELDS]
-                        c3.write(' | '.join(caption_parts))
-                        if c4.button("Open", key=f"btn_{p['patient_id']}", use_container_width=True):
-                            go_to_patient(p['patient_id'])
+        _lobby_tab_dir, _lobby_tab_pending = st.tabs(["🔍 Patient Directory", "⏳ Pending Tests"])
+
+        with _lobby_tab_dir:
+            st.subheader("📋 Patient Directory")
+            search_query = st.text_input("🔍 Find a Patient", placeholder="Search by Name, Phone, Postcode...")
+
+            if search_query:
+                full_data = crm.get_patient_directory()
+                results = [p for p in full_data if search_query.lower() in str(p.values()).lower()]
+
+                if results:
+                    st.success(f"Found {len(results)} patients matching '{search_query}'.")
+                    for p in results:
+                        with st.container(border=True):
+                            c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+                            c1.write(f"**ID:** {p['patient_id']}")
+                            patient_name = ' '.join(filter(None, (p.get(f, '') for f in _NAME_FIELDS)))
+                            c2.write(f"**{patient_name}**")
+                            caption_parts = [f"{label}: {p.get(fn, 'N/A')}" for fn, label in _CAPTION_FIELDS]
+                            c3.write(' | '.join(caption_parts))
+                            if c4.button("Open", key=f"btn_{p['patient_id']}", use_container_width=True):
+                                go_to_patient(p['patient_id'])
+                else:
+                    st.warning("No patients found.")
             else:
-                st.warning("No patients found.")
-        else:
-            st.info("Start typing in the search bar above to find a patient record.")
+                st.info("Start typing in the search bar above to find a patient record.")
+
+        with _lobby_tab_pending:
+            st.subheader("⏳ Pending Tests")
+            _pending_tests = get_all_pending_tests(crm)
+            if _pending_tests:
+                _pending_df = pd.DataFrame(_pending_tests)
+                _pending_display = _pending_df[["Patient", "Test", "Ordered Date", "Ordered By"]].copy()
+                st.dataframe(_pending_display, hide_index=True, use_container_width=True,
+                             column_config={
+                                 "Patient": st.column_config.TextColumn("Patient", width="medium"),
+                                 "Test": st.column_config.TextColumn("Test", width="medium"),
+                                 "Ordered Date": st.column_config.TextColumn("Ordered", width="small"),
+                                 "Ordered By": st.column_config.TextColumn("By", width="small"),
+                             })
+                st.caption("Click a patient in the directory to view their pending tests.")
+            else:
+                st.info("No pending tests at this time.")
 
     with col_side:
         c_title, c_filter = st.columns([1.5, 1])
         c_title.subheader("📅 Schedule")
         schedule_filter = c_filter.selectbox("Timeframe", ["Today", "Tomorrow", "Next 7 Days", "Custom Range"], label_visibility="collapsed")
-        
+
         today_date = date.today()
         start_d, end_d = None, None
-        
+
         if schedule_filter == "Today": start_d, end_d = today_date, today_date
         elif schedule_filter == "Tomorrow": start_d, end_d = today_date + timedelta(days=1), today_date + timedelta(days=1)
         elif schedule_filter == "Next 7 Days": start_d, end_d = today_date, today_date + timedelta(days=MAX_SCHEDULE_DAYS - 1)
@@ -165,9 +188,16 @@ if st.session_state.page == "Lobby":
                 if (custom_dates[1] - custom_dates[0]).days > MAX_SCHEDULE_DAYS: st.warning(f"⚠️ Please select a range of {MAX_SCHEDULE_DAYS} days or fewer.")
                 else: start_d, end_d = custom_dates
             else: st.info("Please select an end date.")
-            
+
+        provider_filter = st.text_input("Filter by provider", placeholder="e.g., Dr. Smith", label_visibility="collapsed")
+
         if start_d and end_d:
             appts = get_clinic_schedule(crm, start_d, end_d)
+            if provider_filter:
+                appts = [a for a in appts if provider_filter.lower() in a['Provider'].lower()]
+                diary_label = f"📅 {provider_filter}'s Diary"
+            else:
+                diary_label = "📅 Schedule"
             if appts:
                 df_schedule = pd.DataFrame(appts)
                 df_schedule['Date'] = pd.to_datetime(df_schedule['Date']).dt.strftime('%d/%m/%Y')
@@ -425,16 +455,16 @@ elif st.session_state.page == "Dashboard":
                         # Build clean dataframe for display
                         df_t = pd.DataFrame(filtered_tests, columns=[
                             'Date', 'Test', 'Value', 'Unit', 'Group', 'Config', 'ResultNote', 'Target', 'Chart',
-                            'ResultID', 'Status', 'TakenOn', 'TakenBy', 'TakenNote', 'RecOn', 'LogBy', 'TrendChart'
+                            'ResultID', 'Status', 'TakenOn', 'TakenBy', 'TakenNote', 'RecOn', 'LogBy', 'TrendChart',
+                            'TrendConfig'
                         ])
                         
                         st.dataframe(
                             df_t, hide_index=True, use_container_width=True, height=300,
-                            # Use column_order to visually place "Group" right next to "Test Name"
                             column_order=("Date", "Group", "Test", "Value", "Unit", "Status", "ResultNote"),
                             column_config={
-                                "Date": st.column_config.TextColumn("Ordered/Taken", width="small"),
-                                "Group": st.column_config.TextColumn("Test Panel", width="medium"), # <--- NOW VISIBLE
+                                "Date": st.column_config.TextColumn("Ordered/Taken", width="medium"),
+                                "Group": st.column_config.TextColumn("Test Group", width="medium"),
                                 "Test": st.column_config.TextColumn("Specific Test", width="medium"),
                                 "Value": st.column_config.TextColumn("Result", width="small"),
                                 "Unit": st.column_config.TextColumn("Unit", width="small"),
@@ -442,7 +472,8 @@ elif st.session_state.page == "Dashboard":
                                 "ResultNote": st.column_config.TextColumn("Note", width="large"),
                                 # Hide internal tracking fields from the main grid view
                                 "Config": None, "Target": None, "Chart": None, "ResultID": None,
-                                "TakenOn": None, "TakenBy": None, "TakenNote": None, "RecOn": None, "LogBy": None
+                                "TakenOn": None, "TakenBy": None, "TakenNote": None, "RecOn": None,
+                                "LogBy": None, "TrendChart": None, "TrendConfig": None
                             }
                         )
                         
@@ -524,17 +555,27 @@ elif st.session_state.page == "Dashboard":
                                     th = [t for t in group_history if t[1] == t_name]
                                     th.sort(key=lambda x: x[0], reverse=True)
                                     curr_note = th[0][6] if th[0][6] else ""
-                                    notes_data.append({"Group": group_name, "Test": t_name, "Include Note": True, "Note Text": curr_note})
-                            
+                                    notes_data.append({
+                                        "Group": group_name,
+                                        "Test": t_name,
+                                        "Latest": th[0][0].split()[0],
+                                        "Results": len(th),
+                                        "Include Note": True,
+                                        "Note Text": curr_note
+                                    })
+
                             edited_notes_df = st.data_editor(
-                                pd.DataFrame(notes_data), 
-                                hide_index=True, 
-                                use_container_width=True, 
+                                pd.DataFrame(notes_data),
+                                hide_index=True,
+                                use_container_width=True,
                                 key="notes_editor",
+                                column_order=("Group", "Test", "Latest", "Results", "Include Note", "Note Text"),
                                 column_config={
-                                    "Group": st.column_config.TextColumn("Test Panel", disabled=True, width="small"),
+                                    "Group": st.column_config.TextColumn("Test Group", disabled=True, width="medium"),
                                     "Test": st.column_config.TextColumn("Specific Test", disabled=True, width="medium"),
-                                    "Include Note": st.column_config.CheckboxColumn("Note", width="small"), 
+                                    "Latest": st.column_config.TextColumn("Latest", disabled=True, width="small"),
+                                    "Results": st.column_config.NumberColumn("Count", disabled=True, width="small"),
+                                    "Include Note": st.column_config.CheckboxColumn("Note", width="small"),
                                     "Note Text": st.column_config.TextColumn("Edit Note Content", width="large")
                                 }
                             )
@@ -590,15 +631,27 @@ elif st.session_state.page == "Dashboard":
             with tab_appointments:
                 st.header("📅 Appointments")
                 with st.expander("➕ Schedule New Appointment", expanded=False):
+                    # Provider + date fields outside the form (live update on change)
+                    _appt_c1, _appt_c2 = st.columns(2)
+                    _new_provider = _appt_c1.text_input("Provider / Resource (e.g., Dr. Smith, Blood Clinic)", key="new_appt_provider")
+                    _new_appt_date = _appt_c2.date_input("Date", min_value=datetime.today(), key="new_appt_date")
+                    # Show existing bookings for this provider on this date
+                    if _new_provider.strip():
+                        _existing = get_provider_schedule(crm, _new_provider.strip(), _new_appt_date)
+                        if _existing:
+                            st.dataframe(pd.DataFrame(_existing), hide_index=True, use_container_width=True,
+                                         column_config={"Time": st.column_config.TextColumn("Time", width="small"),
+                                                        "Reason": st.column_config.TextColumn("Reason")})
+                        else:
+                            st.caption("No existing bookings for this provider on this date.")
                     with st.form("new_appt_form", clear_on_submit=True):
-                        c1, c2 = st.columns(2)
-                        appt_date = c1.date_input("Date", min_value=datetime.today())
-                        appt_time = c2.time_input("Time")
-                        provider = st.text_input("Provider / Resource (e.g., Dr. Smith, Blood Clinic)")
+                        appt_time = st.time_input("Time")
                         reason = st.text_input("Reason for Visit")
                         if st.form_submit_button("Book Appointment", type="primary"):
-                            if provider.strip() and reason.strip():
-                                crm.add_appointment(pid, appt_date, appt_time, provider.strip(), reason.strip(), st.session_state['username'])
+                            _prov = st.session_state.get("new_appt_provider", "").strip()
+                            _adate = st.session_state.get("new_appt_date", datetime.today().date())
+                            if _prov and reason.strip():
+                                crm.add_appointment(pid, _adate, appt_time, _prov, reason.strip(), st.session_state['username'])
                                 st.success("Appointment booked!"); st.rerun()
                             else: st.warning("Provider and Reason are required.")
                 
@@ -651,6 +704,13 @@ elif st.session_state.page == "Admin Console":
     # -----------------------------------------------------
     with tab_staff:
         st.subheader("Staff Management")
+        # Query staff data once, shared across all sections
+        crm.connect()
+        crm.cursor.execute("SELECT staff_id, username, role FROM staff ORDER BY role, username")
+        staff_list = crm.cursor.fetchall()
+        crm.close()
+        df_staff = pd.DataFrame(staff_list, columns=['Staff ID', 'Username', 'Role']) if staff_list else pd.DataFrame(columns=['Staff ID', 'Username', 'Role'])
+
         with st.expander("➕ Add New Staff Member", expanded=False):
             with st.form("new_staff_form", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3)
@@ -662,43 +722,41 @@ elif st.session_state.page == "Admin Console":
                         if crm.add_staff_member(n_user.strip(), n_pwd.strip(), n_role): st.success(f"✅ User '{n_user}' created!")
                         else: st.error("❌ Username already exists.")
                     else: st.warning("Please provide both username and password.")
-                        
-        with st.expander("📋 View Current Staff Directory", expanded=False):
-            crm.connect()
-            crm.cursor.execute("SELECT staff_id, username, role FROM staff ORDER BY role, username")
-            staff_list = crm.cursor.fetchall()
-            crm.close()
-            if staff_list:
-                df_staff = pd.DataFrame(staff_list, columns=['Staff ID', 'Username', 'Role'])
-                st.dataframe(df_staff, hide_index=True, use_container_width=True)
 
-        with st.expander("⚙️ Manage Existing Staff (Passwords & Removal)", expanded=False):
-            if staff_list:
-                staff_dict = {s['Staff ID']: f"{s['Username']} ({s['Role']})" for _, s in df_staff.iterrows()}
-                selected_staff_id = st.selectbox("Select Staff Member", options=list(staff_dict.keys()), format_func=lambda x: staff_dict[x])
-                action = st.radio("Action to perform:", ["Change Password", "Delete User"], horizontal=True)
-                st.divider()
-                
-                if action == "Change Password":
-                    with st.form("change_pwd_form", clear_on_submit=True):
-                        new_pwd = st.text_input("New Password", type="password")
-                        if st.form_submit_button("💾 Update Password", type="primary"):
-                            if new_pwd.strip():
-                                crm.connect()
-                                crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?", (hash_password(new_pwd.strip()), selected_staff_id))
-                                crm.conn.commit(); crm.close()
-                                st.success("Password successfully updated!"); st.rerun()
-                elif action == "Delete User":
-                    selected_username = staff_dict[selected_staff_id].split(" (")[0]
-                    if st.session_state.get('username') == selected_username: st.error("⚠️ You cannot delete your own account.")
-                    elif len(staff_dict) <= 1: st.error("⛔ **Action Denied:** Cannot delete the last remaining staff member.")
-                    else:
-                        st.warning(f"Permenantly delete **{selected_username}**?")
-                        if st.button("🗑️ Confirm Delete User", type="primary"):
+        st.divider()
+        st.markdown("**Current Staff**")
+        if not df_staff.empty:
+            st.dataframe(df_staff, hide_index=True, use_container_width=True)
+        else:
+            st.caption("No staff members found.")
+
+        if staff_list:
+            st.divider()
+            staff_dict = {s['Staff ID']: f"{s['Username']} ({s['Role']})" for _, s in df_staff.iterrows()}
+            selected_staff_id = st.selectbox("Select Staff Member", options=list(staff_dict.keys()), format_func=lambda x: staff_dict[x])
+            action = st.radio("Action to perform:", ["Change Password", "Delete User"], horizontal=True)
+            st.divider()
+
+            if action == "Change Password":
+                with st.form("change_pwd_form", clear_on_submit=True):
+                    new_pwd = st.text_input("New Password", type="password")
+                    if st.form_submit_button("💾 Update Password", type="primary"):
+                        if new_pwd.strip():
                             crm.connect()
-                            crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (selected_staff_id,))
+                            crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?", (hash_password(new_pwd.strip()), selected_staff_id))
                             crm.conn.commit(); crm.close()
-                            st.success("User deleted."); time.sleep(1); st.rerun()
+                            st.success("Password successfully updated!"); st.rerun()
+            elif action == "Delete User":
+                selected_username = staff_dict[selected_staff_id].split(" (")[0]
+                if st.session_state.get('username') == selected_username: st.error("⚠️ You cannot delete your own account.")
+                elif len(staff_dict) <= 1: st.error("⛔ **Action Denied:** Cannot delete the last remaining staff member.")
+                else:
+                    st.warning(f"Permenantly delete **{selected_username}**?")
+                    if st.button("🗑️ Confirm Delete User", type="primary"):
+                        crm.connect()
+                        crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (selected_staff_id,))
+                        crm.conn.commit(); crm.close()
+                        st.success("User deleted."); time.sleep(1); st.rerun()
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
@@ -728,26 +786,27 @@ elif st.session_state.page == "Admin Console":
         with design_col:
             st.markdown("#### 🎨 Preset Themes")
             
-            # Force buttons to respect newlines
-            st.markdown("""
-                <style>
-                div.stButton > button p {
-                    white-space: pre-wrap;
-                    text-align: center;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-            
-            # --- ALL 6 BUTTONS RESTORED ---
-            pc1, pc2, pc3 = st.columns(3)
-            if pc1.button("🌊 Classic\nBlue", use_container_width=True): st.session_state.designer_theme = PRESETS["Classic Blue"]; st.rerun()
-            if pc2.button("🏢 Modern\nMinimal", use_container_width=True): st.session_state.designer_theme = PRESETS["Modern Minimal"]; st.rerun()
-            if pc3.button("🌿 Warm\nEmerald", use_container_width=True): st.session_state.designer_theme = PRESETS["Warm Emerald"]; st.rerun()
-            
-            pc4, pc5, pc6 = st.columns(3)
-            if pc4.button("🌅 Sunset\nCoral", use_container_width=True): st.session_state.designer_theme = PRESETS["Sunset Coral"]; st.rerun()
-            if pc5.button("☂️ Royal\nViolet", use_container_width=True): st.session_state.designer_theme = PRESETS["Royal Violet"]; st.rerun()
-            if pc6.button("🪨 Crisp\nSlate", use_container_width=True): st.session_state.designer_theme = PRESETS["Crisp Slate"]; st.rerun()
+            _presets_layout = [
+                [("🌊", "Classic\nBlue",    "Classic Blue"),
+                 ("🏢", "Modern\nMinimal",  "Modern Minimal"),
+                 ("🌿", "Warm\nEmerald",    "Warm Emerald")],
+                [("🌅", "Sunset\nCoral",    "Sunset Coral"),
+                 ("☂️", "Royal\nViolet",    "Royal Violet"),
+                 ("🪨", "Crisp\nSlate",     "Crisp Slate")],
+            ]
+            for _row in _presets_layout:
+                _rcols = st.columns(3)
+                for _rc, (_em, _lbl, _name) in zip(_rcols, _row):
+                    with _rc:
+                        _ic, _bc = st.columns([1, 3])
+                        _ic.markdown(
+                            f"<p style='font-size:22px;text-align:center;margin:0;"
+                            f"line-height:2.5rem'>{_em}</p>",
+                            unsafe_allow_html=True
+                        )
+                        if _bc.button(_lbl, use_container_width=True, key=f"preset_{_name}"):
+                            st.session_state.designer_theme = PRESETS[_name]
+                            st.rerun()
             
             st.divider(); st.markdown("#### ⚙️ Global Report Settings")
             with st.form("theme_designer_form", border=False):
@@ -863,7 +922,56 @@ elif st.session_state.page == "Admin Console":
     with tab_tests:
         st.subheader("🧪 Metadata & Test Dictionary")
         st.write("Define new clinical tests and specify how they render in the report builder.")
-        
+
+        # ---- COLOUR PALETTE ----
+        _raw_palette = crm.get_setting("colour_palette", "[]")
+        try:
+            PALETTE = json.loads(_raw_palette)
+        except (json.JSONDecodeError, TypeError):
+            PALETTE = []
+
+        with st.expander("🎨 Colour Palette", expanded=False):
+            if PALETTE:
+                _pal_rows = []
+                for _pi, _pc in enumerate(PALETTE):
+                    _pc1, _pc2, _pc3 = st.columns([2, 2, 1])
+                    _pc1.write(_pc['name'])
+                    _display_hex = _pc['hex'] if _pc['hex'] != 'transparent' else '#FFFFFF'
+                    _pc2.color_picker("Hex", value=_display_hex, key=f"pal_disp_{_pi}", disabled=True, label_visibility="collapsed")
+                    if _pc3.button("✕", key=f"pal_del_{_pi}", use_container_width=True):
+                        PALETTE.pop(_pi)
+                        crm.update_setting("colour_palette", json.dumps(PALETTE))
+                        st.rerun()
+            else:
+                st.caption("No colours defined yet.")
+
+            st.divider()
+            with st.form("add_colour_form", clear_on_submit=True):
+                _ac1, _ac2 = st.columns(2)
+                _new_pal_name = _ac1.text_input("Colour Name")
+                _new_pal_hex  = _ac2.color_picker("Colour", value="#D4EDDA")
+                if st.form_submit_button("Add Colour"):
+                    if _new_pal_name.strip():
+                        PALETTE.append({"name": _new_pal_name.strip(), "hex": _new_pal_hex})
+                        crm.update_setting("colour_palette", json.dumps(PALETTE))
+                        st.rerun()
+                    else:
+                        st.warning("Colour name is required.")
+
+        # ---- PALETTE HELPER FUNCTION ----
+        def _palette_select(label, key, current_hex, palette):
+            """Renders a selectbox of palette names; returns selected hex."""
+            if not palette:
+                return current_hex
+            names = [p['name'] for p in palette]
+            hexes = [p['hex'] for p in palette]
+            try:
+                idx = hexes.index(current_hex)
+            except ValueError:
+                idx = 0
+            sel = st.selectbox(label, names, index=idx, key=key, label_visibility="collapsed")
+            return hexes[names.index(sel)]
+
         # 1. Fetch All Tests (with group JOIN for denormalised display)
         crm.connect()
         crm.cursor.execute("""
@@ -889,11 +997,11 @@ elif st.session_state.page == "Admin Console":
         crm.close()
 
         # ---- SECTION A: Test Panels ----
-        st.markdown("#### 🗂️ Test Panels")
+        st.markdown("#### 🗂️ Test Groups")
 
-        with st.expander(f"📋 View Panels ({len(all_test_groups)})", expanded=False):
+        with st.expander(f"📋 View Test Groups ({len(all_test_groups)})", expanded=False):
             if all_test_groups:
-                df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Panel Name', 'Chart Style', 'Trend Chart', 'Description'])
+                df_tg = pd.DataFrame(all_test_groups, columns=['group_id', 'Test Group', 'Chart Style', 'Trend Chart', 'Description'])
                 st.dataframe(
                     df_tg, hide_index=True, use_container_width=True,
                     column_config={"group_id": None}
@@ -1026,8 +1134,11 @@ elif st.session_state.page == "Admin Console":
                 if not is_t:
                     if f'{pfx}_zone_color_{i}' not in st.session_state:
                         st.session_state[f'{pfx}_zone_color_{i}'] = '#D4EDDA'
-                    _zc[2].color_picker("Colour", key=f'{pfx}_zone_color_{i}',
-                                        label_visibility="collapsed")
+                    with _zc[2]:
+                        _sel_hex = _palette_select("Colour", f'{pfx}_zone_color_{i}',
+                                                   st.session_state.get(f'{pfx}_zone_color_{i}', '#D4EDDA'),
+                                                   PALETTE)
+                        st.session_state[f'{pfx}_zone_color_{i}'] = _sel_hex
                 else:
                     _zc[2].caption("*(none)*")
                 # Label
@@ -1070,7 +1181,7 @@ elif st.session_state.page == "Admin Console":
         if 'nt_graph_type' not in st.session_state:
             _nt_reset()
 
-        with st.expander("➕ Add New Test or Panel", expanded=False):
+        with st.expander("➕ Add New Test Group", expanded=False):
             from modules.charts import render_gauge, render_dot, render_bars, render_text
 
             nt_left, nt_right = st.columns([1.1, 1], gap="large")
@@ -1095,6 +1206,14 @@ elif st.session_state.page == "Admin Console":
                     _nt_reset()
                     st.session_state['nt_graph_type'] = nt_graph
                     st.rerun()
+
+                _type_info = {
+                    "gauge": "Creates **1 test** in this group — single value on a scale.",
+                    "dot":   "Creates **2 tests** in this group — two values plotted together (e.g. Systolic & Diastolic).",
+                    "bar":   "Creates **2+ tests** in this group — each as a separate bar (e.g. Cholesterol components).",
+                    "none":  "Creates **1 test** in this group — displays value as large text only.",
+                }
+                st.caption(_type_info[nt_graph])
 
                 st.divider()
 
@@ -1138,6 +1257,20 @@ elif st.session_state.page == "Admin Console":
                         st.session_state['nt_preview_val'] = _nt_g_min + (_nt_g_max - _nt_g_min) * 0.55
                     _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
                                           help="Used in the live chart preview only")
+                    st.markdown("**Trend Chart**")
+                    _tc1, _tc2 = st.columns(2)
+                    with _tc1:
+                        _nt_trend_colour_hex = _palette_select(
+                            "Trend line colour", "nt_trend_colour",
+                            st.session_state.get("nt_trend_colour", "#003366"), PALETTE
+                        )
+                        st.session_state["nt_trend_colour"] = _nt_trend_colour_hex
+                    _nt_trend_style = _tc2.radio("Line style", ["Solid", "Dashed"],
+                                                  index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                  key="nt_trend_style_radio", horizontal=True)
+                    st.session_state["nt_trend_style"] = _nt_trend_style
+                    _nt_show_markers = st.checkbox("Mark each data point", key="nt_show_markers",
+                                                    value=st.session_state.get("nt_show_markers", False))
 
                 elif nt_graph == "dot":
                     # Initialize dot state if missing
@@ -1166,8 +1299,14 @@ elif st.session_state.page == "Admin Console":
                         _dc = st.columns([2, 2, 1.5, 1.5, 1])
                         _dc[0].text_input("Test Name", key=f'nt_dot_name_{_di}', label_visibility="collapsed")
                         _dc[1].text_input("Label",     key=f'nt_dot_label_{_di}', label_visibility="collapsed")
-                        _dc[2].color_picker("Fill",    key=f'nt_dot_fill_{_di}', label_visibility="collapsed")
-                        _dc[3].color_picker("Stroke",  key=f'nt_dot_stroke_{_di}', label_visibility="collapsed")
+                        with _dc[2]:
+                            _df_hex = _palette_select("Fill", f'nt_dot_fill_{_di}',
+                                                      st.session_state.get(f'nt_dot_fill_{_di}', '#003366'), PALETTE)
+                            st.session_state[f'nt_dot_fill_{_di}'] = _df_hex
+                        with _dc[3]:
+                            _ds_hex = _palette_select("Stroke", f'nt_dot_stroke_{_di}',
+                                                      st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'), PALETTE)
+                            st.session_state[f'nt_dot_stroke_{_di}'] = _ds_hex
                         if _dc[4].button("✕", key=f'nt_dot_rm_{_di}') and nd > 1:
                             for _j in range(_di, nd - 1):
                                 for _s in ['name', 'label', 'fill', 'stroke']:
@@ -1212,6 +1351,14 @@ elif st.session_state.page == "Admin Console":
                             st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
                         _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
                         _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
+                    st.markdown("**Trend Chart**")
+                    _nt_dot_trend_style = st.radio("Line style", ["Solid", "Dashed"],
+                                                    index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                    key="nt_dot_trend_style_radio", horizontal=True)
+                    st.session_state["nt_trend_style"] = _nt_dot_trend_style
+                    _nt_dot_show_markers = st.checkbox("Mark each data point", key="nt_dot_show_markers",
+                                                        value=st.session_state.get("nt_show_markers", False))
+                    st.session_state["nt_show_markers"] = _nt_dot_show_markers
 
                 elif nt_graph == "bar":
                     nt_bar_n = int(st.number_input("Number of component tests", min_value=1, max_value=8,
@@ -1246,8 +1393,14 @@ elif st.session_state.page == "Admin Console":
                             st.session_state[f'{_bpfx}_barcol'] = '#003366'
                         if f'{_bpfx}_alertcol' not in st.session_state:
                             st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
-                        _bcolor1.color_picker("Bar colour",       key=f'{_bpfx}_barcol')
-                        _bcolor2.color_picker("Alert bar colour", key=f'{_bpfx}_alertcol')
+                        with _bcolor1:
+                            _bb_hex = _palette_select("Bar colour", f'{_bpfx}_barcol',
+                                                      st.session_state.get(f'{_bpfx}_barcol', '#003366'), PALETTE)
+                            st.session_state[f'{_bpfx}_barcol'] = _bb_hex
+                        with _bcolor2:
+                            _ba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
+                                                      st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
+                            st.session_state[f'{_bpfx}_alertcol'] = _ba_hex
 
                         if f'{_bpfx}_axis_start' not in st.session_state:
                             st.session_state[f'{_bpfx}_axis_start'] = 0.0
@@ -1297,14 +1450,40 @@ elif st.session_state.page == "Admin Console":
                             "Current upper limits: " + ", ".join(f"{l:g}" for l in _nt_bar_limits),
                             icon="⚠️"
                         )
+                    st.markdown("**Trend Chart**")
+                    _nt_bar_trend_style = st.radio("Line style", ["Solid", "Dashed"],
+                                                    index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                    key="nt_bar_trend_style_radio", horizontal=True)
+                    st.session_state["nt_trend_style"] = _nt_bar_trend_style
+                    _nt_bar_show_markers = st.checkbox("Mark each data point", key="nt_bar_show_markers",
+                                                        value=st.session_state.get("nt_show_markers", False))
+                    st.session_state["nt_show_markers"] = _nt_bar_show_markers
 
-                # else: none — nothing more needed
+                elif nt_graph == "none":
+                    st.markdown("**Trend Chart**")
+                    _tc1n, _tc2n = st.columns(2)
+                    with _tc1n:
+                        _nt_none_trend_colour_hex = _palette_select(
+                            "Trend line colour", "nt_trend_colour",
+                            st.session_state.get("nt_trend_colour", "#003366"), PALETTE
+                        )
+                        st.session_state["nt_trend_colour"] = _nt_none_trend_colour_hex
+                    _nt_none_trend_style = _tc2n.radio("Line style", ["Solid", "Dashed"],
+                                                        index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                        key="nt_none_trend_style_radio", horizontal=True)
+                    st.session_state["nt_trend_style"] = _nt_none_trend_style
+                    _nt_none_show_markers = st.checkbox("Mark each data point", key="nt_none_show_markers",
+                                                         value=st.session_state.get("nt_show_markers", False))
+                    st.session_state["nt_show_markers"] = _nt_none_show_markers
+
+                # nothing more needed for none (trend config added above)
 
                 # ---- STEP 3: Metadata & Save (inside a form) ----
-                st.markdown("#### Step 3 — Metadata")
+                _step3_label = "#### Step 3 — Metadata (applies to the whole group)" if nt_graph in ("dot", "bar") else "#### Step 3 — Metadata"
+                st.markdown(_step3_label)
                 with st.form("new_test_save_form", clear_on_submit=True):
                     _m1, _m2 = st.columns(2)
-                    nt_panel_name = _m1.text_input("Test / Panel Name")
+                    nt_panel_name = _m1.text_input("Test Group Name")
                     nt_unit       = _m2.text_input("Unit (e.g., bpm, mmol/L)")
                     nt_target     = st.text_input("Target Display Text (e.g., '60-100' or '>95')")
                     nt_desc       = st.text_input("Description (optional)")
@@ -1403,12 +1582,17 @@ elif st.session_state.page == "Admin Console":
                             if not _defs:
                                 st.warning("No valid test definitions to save.")
                             else:
+                                _trend_cfg = json.dumps({
+                                    "line_colour": st.session_state.get("nt_trend_colour", "#003366"),
+                                    "line_style": "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
+                                    "show_markers": bool(st.session_state.get("nt_show_markers", False))
+                                })
                                 crm.connect()
                                 try:
                                     crm.cursor.execute("""
-                                        INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description)
-                                        VALUES (?, ?, ?, ?)
-                                    """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None))
+                                        INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description, trend_config)
+                                        VALUES (?, ?, ?, ?, ?)
+                                    """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None, _trend_cfg))
                                     new_gid = crm.cursor.lastrowid
                                     for (t_n, t_u, t_t, t_cfg) in _defs:
                                         crm.cursor.execute("""
@@ -1714,8 +1898,14 @@ elif st.session_state.page == "Admin Console":
                                 st.session_state[f'{_bpfx}_barcol'] = '#003366'
                             if f'{_bpfx}_alertcol' not in st.session_state:
                                 st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
-                            _bcolor1.color_picker("Bar colour",       key=f'{_bpfx}_barcol')
-                            _bcolor2.color_picker("Alert bar colour", key=f'{_bpfx}_alertcol')
+                            with _bcolor1:
+                                _ebb_hex = _palette_select("Bar colour", f'{_bpfx}_barcol',
+                                                           st.session_state.get(f'{_bpfx}_barcol', '#003366'), PALETTE)
+                                st.session_state[f'{_bpfx}_barcol'] = _ebb_hex
+                            with _bcolor2:
+                                _eba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
+                                                           st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
+                                st.session_state[f'{_bpfx}_alertcol'] = _eba_hex
                             if f'{_bpfx}_axis_start' not in st.session_state:
                                 st.session_state[f'{_bpfx}_axis_start'] = 0.0
                             _baz_col, _bpv_col = st.columns(2)
@@ -1821,8 +2011,14 @@ elif st.session_state.page == "Admin Console":
                                 _etc = st.columns([2, 2, 1.5, 1.5, 1])
                                 _etc[0].text_input("Test Name", key=f'et_dot_name_{_di}', label_visibility="collapsed")
                                 _etc[1].text_input("Label",     key=f'et_dot_label_{_di}', label_visibility="collapsed")
-                                _etc[2].color_picker("Fill",    key=f'et_dot_fill_{_di}', label_visibility="collapsed")
-                                _etc[3].color_picker("Stroke",  key=f'et_dot_stroke_{_di}', label_visibility="collapsed")
+                                with _etc[2]:
+                                    _etdf_hex = _palette_select("Fill", f'et_dot_fill_{_di}',
+                                                                st.session_state.get(f'et_dot_fill_{_di}', '#003366'), PALETTE)
+                                    st.session_state[f'et_dot_fill_{_di}'] = _etdf_hex
+                                with _etc[3]:
+                                    _etds_hex = _palette_select("Stroke", f'et_dot_stroke_{_di}',
+                                                                st.session_state.get(f'et_dot_stroke_{_di}', '#003366'), PALETTE)
+                                    st.session_state[f'et_dot_stroke_{_di}'] = _etds_hex
                                 if _etc[4].button("✕", key=f'et_dot_rm_{_di}') and _et_nd > 1:
                                     for _j in range(_di, _et_nd - 1):
                                         for _s in ['name', 'label', 'fill', 'stroke']:

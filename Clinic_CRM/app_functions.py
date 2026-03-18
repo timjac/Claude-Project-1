@@ -54,7 +54,7 @@ def get_patient_tests(pid, crm):
     crm.connect()
     # Indices map: 0:date, 1:name, 2:value, 3:unit, 4:group, 5:config, 6:note, 7:target, 8:chart, 9:result_id,
     #              10:status, 11:test_taken_on, 12:test_taken_by, 13:test_taken_note, 14:result_received_on,
-    #              15:result_logged_by, 16:trend_chart_type
+    #              15:result_logged_by, 16:trend_chart_type, 17:trend_config
     sql = """
         SELECT
             e.encounter_date,
@@ -73,7 +73,8 @@ def get_patient_tests(pid, crm):
             tr.test_taken_note,
             tr.result_received_on,
             tr.result_logged_by,
-            COALESCE(tg.trend_chart_type, 'line') AS trend_chart_type
+            COALESCE(tg.trend_chart_type, 'line') AS trend_chart_type,
+            tg.trend_config
         FROM test_results tr
         JOIN encounters e ON tr.encounter_id = e.encounter_id
         LEFT JOIN test_definitions td ON tr.test_name = td.test_name
@@ -234,6 +235,68 @@ def login_screen(crm):
                 st.rerun()
         else:
             st.error("Invalid username or password.")
+
+def get_provider_schedule(crm, provider_name, appt_date):
+    """Returns scheduled appointments for a provider on a given date (case-insensitive match)."""
+    from constants import APPT_SCHEDULED
+    crm.connect()
+    sql = """
+        SELECT appointment_time, reason
+        FROM appointments
+        WHERE LOWER(provider) = LOWER(?) AND appointment_date = ? AND status = ?
+        ORDER BY appointment_time ASC
+    """
+    crm.cursor.execute(sql, (provider_name, str(appt_date), APPT_SCHEDULED))
+    appts = crm.cursor.fetchall()
+    crm.close()
+    return [{"Time": a['appointment_time'], "Reason": a['reason']} for a in appts]
+
+
+def get_all_pending_tests(crm):
+    """Returns all Pending test_results across all patients with patient name."""
+    crm.connect()
+    sql = """
+        SELECT
+            tr.result_id,
+            tr.test_name,
+            e.encounter_date AS ordered_date,
+            tr.test_taken_by AS ordered_by,
+            e.patient_id,
+            ph_first.field_value AS first_name,
+            ph_last.field_value AS last_name
+        FROM test_results tr
+        JOIN encounters e ON tr.encounter_id = e.encounter_id
+        LEFT JOIN (
+            SELECT patient_id, field_value
+            FROM patient_history ph1
+            WHERE field_name = 'first_name'
+              AND change_date = (SELECT MAX(change_date) FROM patient_history
+                                 WHERE patient_id = ph1.patient_id AND field_name = 'first_name')
+        ) ph_first ON e.patient_id = ph_first.patient_id
+        LEFT JOIN (
+            SELECT patient_id, field_value
+            FROM patient_history ph2
+            WHERE field_name = 'last_name'
+              AND change_date = (SELECT MAX(change_date) FROM patient_history
+                                 WHERE patient_id = ph2.patient_id AND field_name = 'last_name')
+        ) ph_last ON e.patient_id = ph_last.patient_id
+        WHERE tr.status = 'Pending'
+        ORDER BY e.encounter_date DESC
+    """
+    crm.cursor.execute(sql)
+    rows = crm.cursor.fetchall()
+    crm.close()
+    return [
+        {
+            "Patient": f"{r['first_name'] or ''} {r['last_name'] or ''}".strip() or f"ID {r['patient_id']}",
+            "Test": r['test_name'],
+            "Ordered Date": r['ordered_date'].split()[0] if r['ordered_date'] else "",
+            "Ordered By": r['ordered_by'] or "",
+            "patient_id": r['patient_id'],
+        }
+        for r in rows
+    ]
+
 
 def get_clinic_schedule(crm, start_date, end_date):
     crm.connect()

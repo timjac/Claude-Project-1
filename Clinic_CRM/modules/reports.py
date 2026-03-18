@@ -366,6 +366,11 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
 
         graph_type = config.get("graph_type", "none")
         trend_chart_type = latest[16] if len(latest) > 16 else 'line'
+        _tc_raw = latest[17] if len(latest) > 17 else None
+        try:
+            trend_config_parsed = json.loads(_tc_raw) if _tc_raw else {}
+        except (json.JSONDecodeError, TypeError):
+            trend_config_parsed = {}
 
         img_gauge, img_trend = None, None
         display_title = group_name
@@ -382,7 +387,7 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             img_gauge = render_text(val, unit)
 
             if trend_chart_type == 'line' and len(group_data) > 1:
-                img_trend = create_trend_chart(group_data, test_name, unit)
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
 
             history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
 
@@ -390,7 +395,7 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             img_gauge = render_gauge(val, config, test_name, unit)
 
             if trend_chart_type == 'line' and len(group_data) > 1:
-                img_trend = create_trend_chart(group_data, test_name, unit)
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
 
             history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
 
@@ -429,9 +434,9 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             dia_data = sorted([t for t in group_data if "Diastolic" in t[1]],
                                key=lambda x: x[0], reverse=True)
             if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
-                img_trend = create_bp_trend_chart(sys_data, dia_data, primary_config)
+                img_trend = create_bp_trend_chart(sys_data, dia_data, primary_config, trend_config=trend_config_parsed)
             elif trend_chart_type == 'line' and len(group_data) > 1:
-                img_trend = create_trend_chart(group_data, test_name, unit)
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
 
             # Stitch history: SYS/DIA per date
             history_dict = {}
@@ -478,9 +483,9 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
             if trend_chart_type == 'multi_trend':
                 unique_dates = list(set([t[0].split()[0] for t in group_data]))
                 if len(unique_dates) > 1:
-                    img_trend = create_multi_trend_chart(group_data)
+                    img_trend = create_multi_trend_chart(group_data, trend_config=trend_config_parsed)
             elif trend_chart_type == 'line' and len(group_data) > 1:
-                img_trend = create_trend_chart(group_data, test_name, unit)
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
 
             # Stitch panel history per date
             history_dict = {}
