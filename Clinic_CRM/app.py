@@ -723,15 +723,7 @@ elif st.session_state.page == "Admin Console":
                         else: st.error("❌ Username already exists.")
                     else: st.warning("Please provide both username and password.")
 
-        st.divider()
-        st.markdown("**Current Staff**")
-        if not df_staff.empty:
-            st.dataframe(df_staff, hide_index=True, use_container_width=True)
-        else:
-            st.caption("No staff members found.")
-
         if staff_list:
-            st.divider()
             with st.expander("⚙️ Manage Existing Staff", expanded=False):
 
                 # --- Change Password view ---
@@ -771,45 +763,46 @@ elif st.session_state.page == "Admin Console":
                 else:
                     # --- Staff table with per-row action buttons ---
                     _pending_del = st.session_state.get('staff_del_id')
-                    _col_w = [0.5, 2.5, 1.5, 2.2, 1.5]
+                    # Narrower action columns keep buttons compact
+                    _col_w = [0.4, 2.5, 1.5, 1.2, 1.2]
                     _hcols = st.columns(_col_w)
                     for _hc, _hl in zip(_hcols, ["**ID**", "**Username**", "**Role**", "", ""]):
                         _hc.markdown(_hl)
 
                     for _, _row in df_staff.iterrows():
-                        _sid      = _row['Staff ID']
-                        _uname    = _row['Username']
-                        _urole    = _row['Role']
-                        _is_self  = (st.session_state.get('username') == _uname)
-                        _is_last  = (len(df_staff) <= 1)
+                        _sid     = _row['Staff ID']
+                        _uname   = _row['Username']
+                        _urole   = _row['Role']
+                        _is_self = (st.session_state.get('username') == _uname)
+                        _is_last = (len(df_staff) <= 1)
                         _rc = st.columns(_col_w)
                         _rc[0].write(str(_sid))
                         _rc[1].write(_uname)
                         _rc[2].write(_urole)
-                        if _rc[3].button("🔑 Change Password", key=f"chpwd_{_sid}", use_container_width=True):
-                            st.session_state.pop('staff_del_id', None)
-                            st.session_state['staff_chpwd_id'] = _sid
-                            st.rerun()
-                        if _rc[4].button("🗑️ Delete", key=f"del_{_sid}", use_container_width=True,
-                                         disabled=(_is_self or _is_last)):
-                            st.session_state['staff_del_id'] = _sid
-                            st.rerun()
 
-                    # Inline delete confirmation (appears below table)
-                    if _pending_del and _pending_del in df_staff['Staff ID'].values:
-                        _del_uname = df_staff[df_staff['Staff ID'] == _pending_del].iloc[0]['Username']
-                        st.divider()
-                        st.warning(f"Permanently delete **{_del_uname}**? This cannot be undone.")
-                        _dc1, _dc2 = st.columns(2)
-                        if _dc1.button("Yes, Delete", type="primary", use_container_width=True, key="confirm_del_staff"):
-                            crm.connect()
-                            crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (_pending_del,))
-                            crm.conn.commit(); crm.close()
-                            del st.session_state['staff_del_id']
-                            st.success("User deleted."); time.sleep(1); st.rerun()
-                        if _dc2.button("Cancel", use_container_width=True, key="cancel_del_staff"):
-                            del st.session_state['staff_del_id']
-                            st.rerun()
+                        if _pending_del == _sid:
+                            # Row is in "confirm delete" state — replace buttons with confirm/cancel
+                            if _rc[3].button("✓ Confirm", key=f"confirmx_{_sid}", use_container_width=True, type="primary"):
+                                crm.connect()
+                                crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (_sid,))
+                                crm.conn.commit(); crm.close()
+                                del st.session_state['staff_del_id']
+                                st.success("User deleted."); time.sleep(0.5); st.rerun()
+                            if _rc[4].button("✕ Cancel", key=f"cancelx_{_sid}", use_container_width=True):
+                                del st.session_state['staff_del_id']
+                                st.rerun()
+                        else:
+                            if _rc[3].button("🔑 Password", key=f"chpwd_{_sid}", use_container_width=True):
+                                st.session_state.pop('staff_del_id', None)
+                                st.session_state['staff_chpwd_id'] = _sid
+                                st.rerun()
+                            # Delete disabled for own account or last user; first click arms it, second confirms
+                            if not (_is_self or _is_last):
+                                if _rc[4].button("🗑️ Delete", key=f"del_{_sid}", use_container_width=True):
+                                    st.session_state['staff_del_id'] = _sid
+                                    st.rerun()
+                            else:
+                                _rc[4].caption("—")
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
