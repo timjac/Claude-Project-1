@@ -428,20 +428,27 @@ def create_custom_report_pdf(patient, tests, report_config, note_overrides, star
                         if d["test_name"] in values_dict]
             display_val = "/".join(dot_vals) if dot_vals else str(val)
 
-            # Trend
-            sys_data = sorted([t for t in group_data if "Systolic" in t[1]],
-                               key=lambda x: x[0], reverse=True)
-            dia_data = sorted([t for t in group_data if "Diastolic" in t[1]],
-                               key=lambda x: x[0], reverse=True)
+            # Trend — split by actual dot names from config, falling back to keyword matching
+            _dot_names = [d["test_name"] for d in dots_cfg if d.get("test_name")]
+            if len(_dot_names) >= 2:
+                sys_data = sorted([t for t in group_data if t[1] == _dot_names[0]],
+                                   key=lambda x: x[0], reverse=True)
+                dia_data = sorted([t for t in group_data if t[1] == _dot_names[1]],
+                                   key=lambda x: x[0], reverse=True)
+            else:
+                sys_data = sorted([t for t in group_data if "Systolic" in t[1]],
+                                   key=lambda x: x[0], reverse=True)
+                dia_data = sorted([t for t in group_data if "Diastolic" in t[1]],
+                                   key=lambda x: x[0], reverse=True)
             if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
                 img_trend = create_bp_trend_chart(sys_data, dia_data, primary_config, trend_config=trend_config_parsed)
             elif trend_chart_type == 'line' and len(group_data) > 1:
                 img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
 
-            # Stitch history: SYS/DIA per date
+            # Stitch history: first/second dot per date
             history_dict = {}
-            sys_key = next((d["test_name"] for d in dots_cfg if "Sys" in d.get("test_name", "")), None)
-            dia_key = next((d["test_name"] for d in dots_cfg if "Dia" in d.get("test_name", "")), None)
+            sys_key = _dot_names[0] if len(_dot_names) >= 1 else next((d["test_name"] for d in dots_cfg if "Sys" in d.get("test_name", "")), None)
+            dia_key = _dot_names[1] if len(_dot_names) >= 2 else next((d["test_name"] for d in dots_cfg if "Dia" in d.get("test_name", "")), None)
             for t in group_data:
                 d_key = t[0].split()[0]
                 if d_key not in history_dict:

@@ -1171,7 +1171,7 @@ elif st.session_state.page == "Admin Console":
                 st.rerun()
 
             has_issues = False
-            _zh = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.8])
+            _zh = st.columns([1.0, 1.2, 2.8, 2.0, 0.7, 0.8])
             for _lbl, _c in zip(["From ↓", "To", "Colour", "Label", "Transp.", ""], _zh):
                 _c.caption(_lbl)
             for i in range(n):
@@ -1180,7 +1180,7 @@ elif st.session_state.page == "Admin Console":
                 bad    = to_v <= from_v
                 if bad:
                     has_issues = True
-                _zc = st.columns([1.3, 1.5, 1, 2.5, 0.7, 0.8])
+                _zc = st.columns([1.0, 1.2, 2.8, 2.0, 0.7, 0.8])
                 # From: read-only, warning colour if bad
                 _zc[0].markdown(f"**:red[{from_v:g} ⚠]**" if bad else f"**{from_v:g}**")
                 # To: number input
@@ -1343,7 +1343,7 @@ elif st.session_state.page == "Admin Console":
                     nd = st.session_state['nt_n_dots']
 
                     st.markdown("**Dots** (1–4)")
-                    _dh = st.columns([2, 2, 1.5, 1.5, 1])
+                    _dh = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
                     for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh):
                         _c.caption(_lbl)
                     for _di in range(nd):
@@ -1355,7 +1355,7 @@ elif st.session_state.page == "Admin Console":
                             st.session_state[f'nt_dot_fill_{_di}'] = '#003366'
                         if f'nt_dot_stroke_{_di}' not in st.session_state:
                             st.session_state[f'nt_dot_stroke_{_di}'] = '#003366'
-                        _dc = st.columns([2, 2, 1.5, 1.5, 1])
+                        _dc = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
                         _dc[0].text_input("Test Name", key=f'nt_dot_name_{_di}', label_visibility="collapsed")
                         _dc[1].text_input("Label",     key=f'nt_dot_label_{_di}', label_visibility="collapsed")
                         with _dc[2]:
@@ -1757,13 +1757,12 @@ elif st.session_state.page == "Admin Console":
                             _pv = float(st.session_state.get(f'nt_preview_val_{_di}',
                                         _ax_min + (_ax_max - _ax_min) * (0.4 + _di * 0.2)))
                             _dcfg = _primary_cfg if _di == 0 else _secondary_cfg
-                            # Use "line" trend so the router doesn't need Systolic/Diastolic names
                             for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_di % len(_mults)])):
                                 _prev_tests.append((
                                     _d, _dn, round(_pv * _m, 1), "units", _prev_grp, _dcfg,
                                     _prev_note if (_i == 0 and _di == 0) else "", "Target Range",
                                     "dot", _i*_nd + _di + 1, "Complete", _d, "Admin", "", _d, "Admin",
-                                    "line", _prev_trend_cfg
+                                    "bp_trend", _prev_trend_cfg
                                 ))
 
                     elif _gt_prev == "bar":
@@ -2126,7 +2125,7 @@ elif st.session_state.page == "Admin Console":
                         elif _et_gt == "dot":
                             _et_nd = st.session_state.get('et_n_dots', 2)
                             st.markdown("**Dots**")
-                            _dh2 = st.columns([2, 2, 1.5, 1.5, 1])
+                            _dh2 = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
                             for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh2):
                                 _c.caption(_lbl)
                             for _di in range(_et_nd):
@@ -2138,7 +2137,7 @@ elif st.session_state.page == "Admin Console":
                                     st.session_state[f'et_dot_fill_{_di}'] = '#003366'
                                 if f'et_dot_stroke_{_di}' not in st.session_state:
                                     st.session_state[f'et_dot_stroke_{_di}'] = '#003366'
-                                _etc = st.columns([2, 2, 1.5, 1.5, 1])
+                                _etc = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
                                 _etc[0].text_input("Test Name", key=f'et_dot_name_{_di}', label_visibility="collapsed")
                                 _etc[1].text_input("Label",     key=f'et_dot_label_{_di}', label_visibility="collapsed")
                                 with _etc[2]:
