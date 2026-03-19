@@ -824,6 +824,7 @@ elif st.session_state.page == "Admin Console":
         crm.close()
         df_staff = pd.DataFrame(staff_list, columns=['Staff ID', 'Username', 'Role']) if staff_list else pd.DataFrame(columns=['Staff ID', 'Username', 'Role'])
 
+        # ---- ADD NEW STAFF ----
         with st.expander("➕ Add New Staff Member", expanded=False):
             with st.form("new_staff_form", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3)
@@ -836,233 +837,209 @@ elif st.session_state.page == "Admin Console":
                         else: st.error("❌ Username already exists.")
                     else: st.warning("Please provide both username and password.")
 
+        # ---- MANAGE EXISTING STAFF ----
         if staff_list:
             with st.expander("⚙️ Manage Existing Staff", expanded=False):
+                _SM_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                _SM_OV_TYPES  = ["Annual Leave", "Training", "Sick Leave", "Appointment", "Other"]
+                _sm_names     = [r['Username'] for r in df_staff.to_dict('records')]
 
-                # --- Change Password view ---
-                if st.session_state.get('staff_chpwd_id'):
-                    _cpid = st.session_state['staff_chpwd_id']
-                    _cp_rows = df_staff[df_staff['Staff ID'] == _cpid]
-                    if not _cp_rows.empty:
-                        _cp_username = _cp_rows.iloc[0]['Username']
-                        _cp_role     = _cp_rows.iloc[0]['Role']
-                        st.markdown(f"#### 🔑 Change Password — **{_cp_username}**")
-                        st.caption(f"ID: {_cpid}  ·  Role: {_cp_role}")
+                _sel = st.selectbox(
+                    "Select Staff Member",
+                    ["— Select a staff member —"] + _sm_names,
+                    key="admin_manage_sel"
+                )
+
+                if _sel != "— Select a staff member —":
+                    _sel_row  = df_staff[df_staff['Username'] == _sel].iloc[0]
+                    _sel_id   = _sel_row['Staff ID']
+                    _sel_role = _sel_row['Role']
+                    _is_self  = (st.session_state.get('username') == _sel)
+                    _is_last  = (len(df_staff) <= 1)
+                    _sec_key  = f"admin_section_{_sel}"
+                    _cur_sec  = st.session_state.get(_sec_key)
+
+                    st.caption(f"**{_sel}** — {_sel_role}")
+                    st.divider()
+
+                    # Action toggle buttons (2-column grid)
+                    _bcol1, _bcol2 = st.columns(2)
+                    _actions = [
+                        ("🗓️ View/Edit Shift Pattern", "shift",    _bcol1),
+                        ("📅 Manage Time Off",          "time_off", _bcol2),
+                        ("🔑 Change Password",          "password", _bcol1),
+                    ]
+                    if not (_is_self or _is_last):
+                        _actions.append(("🗑️ Delete Staff Member", "delete", _bcol2))
+
+                    for _label, _sec_id, _col in _actions:
+                        _active = (_cur_sec == _sec_id)
+                        if _col.button(
+                            _label,
+                            key=f"sec_{_sec_id}_{_sel_id}",
+                            type="primary" if _active else "secondary",
+                            use_container_width=True
+                        ):
+                            st.session_state[_sec_key] = None if _active else _sec_id
+                            st.rerun()
+
+                    if _cur_sec:
                         st.divider()
+
+                    # ---- SHIFT PATTERN ----
+                    if _cur_sec == "shift":
+                        _sm_pat, _sm_days = crm.get_shift_pattern(_sel)
+
+                        if _sm_pat:
+                            _sm_dmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
+                            _sm_wks  = 1 if _sm_pat['pattern_type'] == 'weekly' else 2
+                            _sm_sum  = []
+                            for _wk in range(1, _sm_wks + 1):
+                                for _d in range(7):
+                                    _sd = _sm_dmap.get((_wk, _d))
+                                    _sm_sum.append({"Week": _wk, "Day": _SM_DAY_NAMES[_d],
+                                                    "Hours": f"{_sd['start_time']} – {_sd['end_time']}" if _sd else "Day off"})
+                            _sm_df = pd.DataFrame(_sm_sum)
+                            if _sm_wks == 1:
+                                _sm_df = _sm_df.drop(columns=["Week"])
+                            st.caption(f"Current: **{_sm_pat['pattern_type'].title()}** — starts {_sm_pat['anchor_date']}")
+                            st.dataframe(_sm_df, hide_index=True, use_container_width=True)
+                        else:
+                            st.info("No shift pattern set yet. Configure one below.")
+
+                        st.markdown("**✏️ Set / Change Shift Pattern**")
+                        _sm_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
+                                            key=f"sm_edit_type_{_sel}")
+                        _sm_anchor_def = date.fromisoformat(_sm_pat['anchor_date']) if _sm_pat else date.today()
+                        _sm_anchor = st.date_input("Pattern Start Date (must be a Monday)",
+                                                   value=_sm_anchor_def, key=f"sm_anchor_{_sel}")
+                        if _sm_anchor.weekday() != 0:
+                            st.warning("⚠️ The start date must be a Monday.")
+                        else:
+                            _sm_nwks  = 1 if _sm_type == "Weekly" else 2
+                            _sm_exmap = {}
+                            if _sm_pat and _sm_pat['pattern_type'] == _sm_type.lower():
+                                _sm_exmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
+                            _sm_dst = {}
+
+                            def _sm_render_week(wk):
+                                _h = st.columns([2, 1, 1.5, 1.5])
+                                for _l, _c in zip(["Day", "On", "Start", "End"], _h):
+                                    _c.caption(_l)
+                                for _d in range(7):
+                                    _ex = _sm_exmap.get((wk, _d))
+                                    _dw = bool(_ex)
+                                    _ds = datetime.strptime(_ex['start_time'] if _ex and _ex['start_time'] else "09:00", "%H:%M").time()
+                                    _de = datetime.strptime(_ex['end_time']   if _ex and _ex['end_time']   else "17:00", "%H:%M").time()
+                                    c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
+                                    c1.write(_SM_DAY_NAMES[_d])
+                                    _on = c2.checkbox("", value=_dw, key=f"sm_w{wk}_d{_d}_{_sel}",
+                                                      label_visibility="collapsed")
+                                    if _on:
+                                        _s = c3.time_input("", value=_ds, key=f"sm_w{wk}_d{_d}_s_{_sel}",
+                                                           label_visibility="collapsed", step=900)
+                                        _e = c4.time_input("", value=_de, key=f"sm_w{wk}_d{_d}_e_{_sel}",
+                                                           label_visibility="collapsed", step=900)
+                                        _sm_dst[(wk, _d)] = (_s, _e)
+
+                            if _sm_nwks == 2:
+                                _sc1, _sc2 = st.columns(2)
+                                with _sc1:
+                                    st.markdown("**— Week 1 —**")
+                                    _sm_render_week(1)
+                                with _sc2:
+                                    st.markdown("**— Week 2 —**")
+                                    _sm_render_week(2)
+                            else:
+                                _sm_render_week(1)
+
+                            if st.button("💾 Save Shift Pattern", type="primary", key=f"sm_save_{_sel}"):
+                                crm.save_shift_pattern(
+                                    _sel, _sm_type.lower(), str(_sm_anchor),
+                                    [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
+                                     for (wk, d), (s, e) in _sm_dst.items()],
+                                    st.session_state['username'])
+                                st.success(f"✅ Shift pattern saved for {_sel}.")
+                                st.rerun()
+
+                    # ---- TIME OFF ----
+                    elif _cur_sec == "time_off":
+                        st.caption("Record leave, training, sickness, or any other exception to the regular pattern.")
+                        _sm_ovs = crm.get_availability_overrides(_sel)
+                        if _sm_ovs:
+                            _sm_ov_tbl = pd.DataFrame(_sm_ovs)[
+                                ['override_id', 'override_date', 'override_type', 'start_time', 'end_time', 'notes']
+                            ].rename(columns={'override_id': 'ID', 'override_date': 'Date',
+                                              'override_type': 'Type', 'start_time': 'From',
+                                              'end_time': 'To', 'notes': 'Notes'})
+                            _sm_ov_tbl['From'] = _sm_ov_tbl['From'].fillna('Full day')
+                            _sm_ov_tbl['To']   = _sm_ov_tbl['To'].fillna('')
+                            st.dataframe(_sm_ov_tbl, hide_index=True, use_container_width=True,
+                                         column_config={"ID": None})
+                            _sm_del_opts = {r['override_id']: f"{r['override_date']} — {r['override_type']}"
+                                            for r in _sm_ovs}
+                            _sm_del_id = st.selectbox(
+                                "Remove entry?", options=list(_sm_del_opts.keys()),
+                                format_func=lambda x: _sm_del_opts[x],
+                                key=f"sm_del_ov_sel_{_sel}"
+                            )
+                            if st.button("🗑️ Delete Selected Entry", key=f"sm_del_ov_btn_{_sel}"):
+                                crm.delete_availability_override(_sm_del_id)
+                                st.success("Entry removed."); st.rerun()
+                        else:
+                            st.info("No time off entries recorded for this staff member.")
+
+                        st.markdown("**➕ Add Time Off Entry**")
+                        with st.form(f"sm_override_{_sel}", clear_on_submit=True):
+                            _sov_c1, _sov_c2, _sov_c3 = st.columns(3)
+                            _sov_date  = _sov_c1.date_input("Date")
+                            _sov_type  = _sov_c2.selectbox("Type", _SM_OV_TYPES)
+                            _sov_avail = _sov_c3.checkbox("Available (extra shift)", value=False,
+                                                           help="Check only for extra shifts. Leave unchecked for leave/sickness.")
+                            _sov_c4, _sov_c5, _sov_c6 = st.columns(3)
+                            _sov_full  = _sov_c4.checkbox("Full day", value=True)
+                            _sov_start = _sov_c5.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
+                            _sov_end   = _sov_c6.time_input("End Time",   value=datetime.strptime("17:00", "%H:%M").time())
+                            st.caption("Start/End times only apply when 'Full day' is unchecked.")
+                            _sov_notes = st.text_input("Notes (optional)")
+                            if st.form_submit_button("Add Entry", type="primary"):
+                                crm.add_availability_override(
+                                    _sel, str(_sov_date), _sov_type, int(_sov_avail),
+                                    None if _sov_full else _sov_start.strftime("%H:%M"),
+                                    None if _sov_full else _sov_end.strftime("%H:%M"),
+                                    _sov_notes.strip() or None, st.session_state['username'])
+                                st.success("Entry added."); st.rerun()
+
+                    # ---- CHANGE PASSWORD ----
+                    elif _cur_sec == "password":
                         with st.form("change_pwd_form", clear_on_submit=True):
                             new_pwd = st.text_input("New Password", type="password")
-                            _col_s, _col_c = st.columns(2)
-                            _do_save   = _col_s.form_submit_button("💾 Update Password", type="primary", use_container_width=True)
-                            _do_cancel = _col_c.form_submit_button("← Back to Staff List", use_container_width=True)
-                            if _do_save:
+                            if st.form_submit_button("💾 Update Password", type="primary"):
                                 if new_pwd.strip():
                                     crm.connect()
-                                    crm.cursor.execute("UPDATE staff SET password_hash = ? WHERE staff_id = ?",
-                                                       (hash_password(new_pwd.strip()), _cpid))
+                                    crm.cursor.execute(
+                                        "UPDATE staff SET password_hash = ? WHERE staff_id = ?",
+                                        (hash_password(new_pwd.strip()), _sel_id))
                                     crm.conn.commit(); crm.close()
-                                    del st.session_state['staff_chpwd_id']
-                                    st.success("Password updated!"); st.rerun()
+                                    st.success("Password updated!")
                                 else:
                                     st.warning("Please enter a new password.")
-                            if _do_cancel:
-                                del st.session_state['staff_chpwd_id']
-                                st.rerun()
-                        st.markdown("<script>window.scrollTo(0,document.body.scrollHeight);</script>",
-                                    unsafe_allow_html=True)
-                    else:
-                        del st.session_state['staff_chpwd_id']
-                        st.rerun()
 
-                else:
-                    # --- Staff table with per-row action buttons ---
-                    st.markdown("""<style>
-                    div[data-testid="stExpander"] button[data-testid="baseButton-secondary"],
-                    div[data-testid="stExpander"] button[data-testid="baseButton-primary"] {
-                        padding: 0.1rem 0.5rem !important;
-                        font-size: 0.78rem !important;
-                        line-height: 1.2 !important;
-                        min-height: 0 !important;
-                    }
-                    </style>""", unsafe_allow_html=True)
-                    _pending_del = st.session_state.get('staff_del_id')
-                    # Narrower action columns keep buttons compact
-                    _col_w = [0.4, 2.5, 1.5, 1.2, 1.2]
-                    _hcols = st.columns(_col_w)
-                    for _hc, _hl in zip(_hcols, ["**ID**", "**Username**", "**Role**", "", ""]):
-                        _hc.markdown(_hl)
-
-                    for _, _row in df_staff.iterrows():
-                        _sid     = _row['Staff ID']
-                        _uname   = _row['Username']
-                        _urole   = _row['Role']
-                        _is_self = (st.session_state.get('username') == _uname)
-                        _is_last = (len(df_staff) <= 1)
-                        _rc = st.columns(_col_w)
-                        _rc[0].markdown(f"<p style='margin:0;padding-top:0.25rem;font-size:0.9rem'>{_sid}</p>", unsafe_allow_html=True)
-                        _rc[1].markdown(f"<p style='margin:0;padding-top:0.25rem;font-size:0.9rem'>{_uname}</p>", unsafe_allow_html=True)
-                        _rc[2].markdown(f"<p style='margin:0;padding-top:0.25rem;font-size:0.9rem'>{_urole}</p>", unsafe_allow_html=True)
-
-                        if _pending_del == _sid:
-                            # Row is in "confirm delete" state — replace buttons with confirm/cancel
-                            if _rc[3].button("✓ Confirm", key=f"confirmx_{_sid}", use_container_width=True, type="primary"):
-                                crm.connect()
-                                crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (_sid,))
-                                crm.conn.commit(); crm.close()
-                                del st.session_state['staff_del_id']
-                                st.success("User deleted."); time.sleep(0.5); st.rerun()
-                            if _rc[4].button("✕ Cancel", key=f"cancelx_{_sid}", use_container_width=True):
-                                del st.session_state['staff_del_id']
-                                st.rerun()
-                        else:
-                            if _rc[3].button("🔑 Password", key=f"chpwd_{_sid}", use_container_width=True):
-                                st.session_state.pop('staff_del_id', None)
-                                st.session_state['staff_chpwd_id'] = _sid
-                                st.rerun()
-                            # Delete disabled for own account or last user; first click arms it, second confirms
-                            if not (_is_self or _is_last):
-                                if _rc[4].button("🗑️ Delete", key=f"del_{_sid}", use_container_width=True):
-                                    st.session_state['staff_del_id'] = _sid
-                                    st.rerun()
-                            else:
-                                _rc[4].caption("—")
-
-        # ---- SHIFT PATTERNS ----
-        st.divider()
-        st.markdown("**🗓️ Shift Patterns**")
-        _sm_names = [r['Username'] for r in df_staff.to_dict('records')] if staff_list else []
-        if _sm_names:
-            _SM_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            _sm_sel = st.selectbox("Configure pattern for", _sm_names, key="sm_pattern_staff")
-            if _sm_sel:
-                _sm_pat, _sm_days = crm.get_shift_pattern(_sm_sel)
-
-                # Current pattern summary
-                if _sm_pat:
-                    _sm_dmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
-                    _sm_wks  = 1 if _sm_pat['pattern_type'] == 'weekly' else 2
-                    _sm_sum  = []
-                    for _wk in range(1, _sm_wks + 1):
-                        for _d in range(7):
-                            _sd = _sm_dmap.get((_wk, _d))
-                            _sm_sum.append({"Week": _wk, "Day": _SM_DAY_NAMES[_d],
-                                            "Hours": f"{_sd['start_time']} – {_sd['end_time']}" if _sd else "Day off"})
-                    _sm_df = pd.DataFrame(_sm_sum)
-                    if _sm_wks == 1:
-                        _sm_df = _sm_df.drop(columns=["Week"])
-                    st.caption(f"Current: **{_sm_pat['pattern_type'].title()}** — starts {_sm_pat['anchor_date']}")
-                    st.dataframe(_sm_df, hide_index=True, use_container_width=True)
-                else:
-                    st.info("No shift pattern set for this staff member.")
-
-                with st.expander("✏️ Set / Change Shift Pattern", expanded=not _sm_pat):
-                    _sm_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
-                                        key=f"sm_edit_type_{_sm_sel}")
-                    _sm_anchor_def = date.fromisoformat(_sm_pat['anchor_date']) if _sm_pat else date.today()
-                    _sm_anchor = st.date_input("Pattern Start Date (must be a Monday)",
-                                               value=_sm_anchor_def, key=f"sm_anchor_{_sm_sel}")
-                    if _sm_anchor.weekday() != 0:
-                        st.warning("⚠️ The start date must be a Monday.")
-                    else:
-                        _sm_nwks = 1 if _sm_type == "Weekly" else 2
-                        _sm_exmap = {}
-                        if _sm_pat and _sm_pat['pattern_type'] == _sm_type.lower():
-                            _sm_exmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
-                        _sm_dst = {}
-
-                        def _sm_render_week(wk):
-                            _h = st.columns([2, 1, 1.5, 1.5])
-                            for _l, _c in zip(["Day", "On", "Start", "End"], _h):
-                                _c.caption(_l)
-                            for _d in range(7):
-                                _ex = _sm_exmap.get((wk, _d))
-                                _dw = bool(_ex)
-                                _ds = datetime.strptime(_ex['start_time'] if _ex and _ex['start_time'] else "09:00", "%H:%M").time()
-                                _de = datetime.strptime(_ex['end_time']   if _ex and _ex['end_time']   else "17:00", "%H:%M").time()
-                                c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
-                                c1.write(_SM_DAY_NAMES[_d])
-                                _on = c2.checkbox("", value=_dw, key=f"sm_w{wk}_d{_d}_{_sm_sel}",
-                                                  label_visibility="collapsed")
-                                if _on:
-                                    _s = c3.time_input("", value=_ds, key=f"sm_w{wk}_d{_d}_s_{_sm_sel}",
-                                                       label_visibility="collapsed", step=900)
-                                    _e = c4.time_input("", value=_de, key=f"sm_w{wk}_d{_d}_e_{_sm_sel}",
-                                                       label_visibility="collapsed", step=900)
-                                    _sm_dst[(wk, _d)] = (_s, _e)
-
-                        if _sm_nwks == 2:
-                            _sc1, _sc2 = st.columns(2)
-                            with _sc1:
-                                st.markdown("**— Week 1 —**")
-                                _sm_render_week(1)
-                            with _sc2:
-                                st.markdown("**— Week 2 —**")
-                                _sm_render_week(2)
-                        else:
-                            _sm_render_week(1)
-
-                        if st.button("💾 Save Shift Pattern", type="primary", key=f"sm_save_{_sm_sel}"):
-                            crm.save_shift_pattern(
-                                _sm_sel, _sm_type.lower(), str(_sm_anchor),
-                                [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
-                                 for (wk, d), (s, e) in _sm_dst.items()],
-                                st.session_state['username'])
-                            st.success(f"✅ Shift pattern saved for {_sm_sel}.")
+                    # ---- DELETE ----
+                    elif _cur_sec == "delete":
+                        st.error(f"Permanently delete **{_sel}**? This cannot be undone.")
+                        _dcol1, _dcol2 = st.columns(2)
+                        if _dcol1.button("✓ Confirm Delete", type="primary",
+                                         key=f"confirm_del_{_sel_id}", use_container_width=True):
+                            crm.connect()
+                            crm.cursor.execute("DELETE FROM staff WHERE staff_id = ?", (_sel_id,))
+                            crm.conn.commit(); crm.close()
+                            st.session_state.pop(_sec_key, None)
+                            st.session_state.pop("admin_manage_sel", None)
+                            st.success("User deleted."); time.sleep(0.5); st.rerun()
+                        if _dcol2.button("✕ Cancel", key=f"cancel_del_{_sel_id}", use_container_width=True):
+                            st.session_state[_sec_key] = None
                             st.rerun()
-        else:
-            st.info("Add staff members above to configure shift patterns.")
-
-        # ---- AVAILABILITY OVERRIDES ----
-        st.divider()
-        st.markdown("**📅 Availability Overrides**")
-        st.caption("Record leave, training, sickness, or any other exception to a staff member's regular pattern.")
-        _ov_names = [r['Username'] for r in df_staff.to_dict('records')] if staff_list else []
-        if _ov_names:
-            _SM_OV_TYPES = ["Annual Leave", "Training", "Sick Leave", "Appointment", "Other"]
-            _ov_sel = st.selectbox("Staff Member", _ov_names, key="sm_ov_staff")
-            if _ov_sel:
-                with st.expander("➕ Add Override", expanded=False):
-                    with st.form(f"sm_override_{_ov_sel}", clear_on_submit=True):
-                        _sov_c1, _sov_c2, _sov_c3 = st.columns(3)
-                        _sov_date  = _sov_c1.date_input("Date")
-                        _sov_type  = _sov_c2.selectbox("Type", _SM_OV_TYPES)
-                        _sov_avail = _sov_c3.checkbox("Available (extra shift)", value=False,
-                                                       help="Check only for extra shifts. Leave unchecked for leave/sickness.")
-                        _sov_c4, _sov_c5, _sov_c6 = st.columns(3)
-                        _sov_full  = _sov_c4.checkbox("Full day", value=True)
-                        _sov_start = _sov_c5.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
-                        _sov_end   = _sov_c6.time_input("End Time",   value=datetime.strptime("17:00", "%H:%M").time())
-                        st.caption("Start/End times only apply when 'Full day' is unchecked.")
-                        _sov_notes = st.text_input("Notes (optional)")
-                        if st.form_submit_button("Add Override", type="primary"):
-                            crm.add_availability_override(
-                                _ov_sel, str(_sov_date), _sov_type, int(_sov_avail),
-                                None if _sov_full else _sov_start.strftime("%H:%M"),
-                                None if _sov_full else _sov_end.strftime("%H:%M"),
-                                _sov_notes.strip() or None, st.session_state['username'])
-                            st.success("Override added."); st.rerun()
-
-                _sm_ovs = crm.get_availability_overrides(_ov_sel)
-                if _sm_ovs:
-                    _sm_ov_tbl = pd.DataFrame(_sm_ovs)[
-                        ['override_id', 'override_date', 'override_type', 'start_time', 'end_time', 'notes']
-                    ].rename(columns={'override_id': 'ID', 'override_date': 'Date', 'override_type': 'Type',
-                                      'start_time': 'From', 'end_time': 'To', 'notes': 'Notes'})
-                    _sm_ov_tbl['From'] = _sm_ov_tbl['From'].fillna('Full day')
-                    _sm_ov_tbl['To']   = _sm_ov_tbl['To'].fillna('')
-                    st.dataframe(_sm_ov_tbl, hide_index=True, use_container_width=True,
-                                 column_config={"ID": None})
-                    _sm_del_opts = {r['override_id']: f"{r['override_date']} — {r['override_type']}"
-                                    for r in _sm_ovs}
-                    _sm_del_id = st.selectbox("Remove override?", options=list(_sm_del_opts.keys()),
-                                              format_func=lambda x: _sm_del_opts[x],
-                                              key=f"sm_del_ov_sel_{_ov_sel}")
-                    if st.button("🗑️ Delete Selected Override", key=f"sm_del_ov_btn_{_ov_sel}"):
-                        crm.delete_availability_override(_sm_del_id)
-                        st.success("Override removed."); st.rerun()
-                else:
-                    st.info("No overrides recorded for this staff member.")
-        else:
-            st.info("Add staff members above to record availability overrides.")
 
     # -----------------------------------------------------
     # TAB 2: REPORT DESIGNER
