@@ -1751,6 +1751,18 @@ elif st.session_state.page == "Admin Console":
                 </style>
                 """, unsafe_allow_html=True)
                 try:
+                    # Helper: read the current palette hex for a given base key.
+                    # _palette_select uses key+'_psel' as its widget key, so that's
+                    # always current at re-run start; the base key itself lags by one
+                    # render because it's set via explicit assignment after the preview.
+                    def _cur_hex(base_key, default='#003366'):
+                        sel = st.session_state.get(base_key + '_psel')
+                        if sel:
+                            for _p in PALETTE:
+                                if _p['name'] == sel:
+                                    return _p['hex']
+                        return st.session_state.get(base_key, default)
+
                     _gt_prev    = st.session_state['nt_graph_type']
                     _n_prev     = st.session_state.get('nt_n_zones', 2)
                     _zones_prev = _zbuild('nt', _n_prev)
@@ -1769,31 +1781,34 @@ elif st.session_state.page == "Admin Console":
                         [0.95, 1.15, 0.87, 1.04, 0.91],
                     ]
 
-                    # Trend config from current session state
+                    # Trend config from current session state.
+                    # Read widget keys directly where possible to avoid one-render lag.
                     _tc_n = (1 if _gt_prev in ("gauge", "none")
                              else st.session_state.get("nt_n_dots", 2) if _gt_prev == "dot"
                              else int(st.session_state.get("nt_bar_n_input", st.session_state.get("nt_bar_n", 2))))
-                    _tc_colours = [st.session_state.get(f"nt_trend_colour_{_i}", "#003366")
-                                   for _i in range(_tc_n)]
+                    _tc_colours = [_cur_hex(f"nt_trend_colour_{_i}") for _i in range(_tc_n)]
                     # Resolve trend zones for preview
                     _tc_zones = []
                     if _gt_prev in ("gauge", "dot"):
                         if st.session_state.get("nt_trend_show_zones", False):
                             _tc_zones = _zbuild("nt", st.session_state.get("nt_n_zones", 2))
                     elif _gt_prev == "bar":
-                        _src = st.session_state.get("nt_trend_zones_source", "None")
+                        _src = st.session_state.get("nt_trend_zones_source_sel",
+                                                     st.session_state.get("nt_trend_zones_source", "None"))
                         if _src == "Custom":
                             _tc_zones = _zbuild("nt_tc", st.session_state.get("nt_tc_n_zones", 2))
                         elif _src != "None":
-                            for _bi in range(st.session_state.get("nt_bar_n", 2)):
+                            for _bi in range(int(st.session_state.get("nt_bar_n_input", st.session_state.get("nt_bar_n", 2)))):
                                 _bpfx = f"nt_bt_{_bi}"
                                 _bn = st.session_state.get(f"{_bpfx}_name", "").strip() or f"Test {_bi+1}"
                                 if _bn == _src:
                                     _tc_zones = _zbuild(_bpfx, st.session_state.get(f"{_bpfx}_n_zones", 2))
                                     break
+                    _tc_style_raw = st.session_state.get("nt_trend_style_radio",
+                                                          st.session_state.get("nt_trend_style", "Solid"))
                     _prev_trend_cfg = json.dumps({
                         "line_colours":  _tc_colours,
-                        "line_style":    "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
+                        "line_style":    "dashed" if _tc_style_raw == "Dashed" else "solid",
                         "show_markers":  bool(st.session_state.get("nt_show_markers", False)),
                         "fill_area":     bool(st.session_state.get("nt_trend_fill", _tc_n <= 2)),
                         "show_legend":   bool(st.session_state.get("nt_trend_legend", _tc_n > 1)) if _tc_n > 1 else False,
@@ -1809,7 +1824,8 @@ elif st.session_state.page == "Admin Console":
                         _pv = float(st.session_state.get('nt_preview_val', _midpoint))
                         _cfg_s = json.dumps({
                             "graph_type": "gauge",
-                            "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
+                            "gauge_style": st.session_state.get('nt_gauge_style_radio',
+                                           st.session_state.get('nt_gauge_style', 'curved')),
                             "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
                             "axis_min": _ax_min, "axis_max": _ax_max, "zones": _zones_prev
                         })
@@ -1839,8 +1855,8 @@ elif st.session_state.page == "Admin Console":
                         _dots_cfg = [
                             {
                                 "test_name":    st.session_state.get(f'nt_dot_name_{_di}', '') or f"Test {_di+1}",
-                                "fill_color":   st.session_state.get(f'nt_dot_fill_{_di}', '#003366'),
-                                "stroke_color": st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'),
+                                "fill_color":   _cur_hex(f'nt_dot_fill_{_di}'),
+                                "stroke_color": _cur_hex(f'nt_dot_stroke_{_di}'),
                                 "label":        st.session_state.get(f'nt_dot_label_{_di}', f"T{_di+1}"),
                             }
                             for _di in range(_nd)
@@ -1878,8 +1894,8 @@ elif st.session_state.page == "Admin Console":
                             _pv = float(st.session_state.get(f'{_bpfx}_preview_val', _default_v))
                             _bt_cfg = json.dumps({
                                 "graph_type": "bar",
-                                "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
-                                "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
+                                "bar_color":       _cur_hex(f'{_bpfx}_barcol',   '#003366'),
+                                "bar_alert_color": _cur_hex(f'{_bpfx}_alertcol', '#DC3545'),
                                 "zones": _bt_zones
                             })
                             for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_bi % len(_mults)])):
