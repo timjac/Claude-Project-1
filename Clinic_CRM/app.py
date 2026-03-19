@@ -1693,6 +1693,39 @@ elif st.session_state.page == "Admin Console":
                 }
                 st.caption(_type_info[nt_graph])
 
+                # ---- Live preview values ----
+                if nt_graph != "none":
+                    st.markdown("**Live preview values** *(not saved)*")
+                    st.caption("Adjust these to see the chart update in the preview panel.")
+                    if nt_graph == "gauge":
+                        _pv_z = _zbuild('nt', st.session_state.get('nt_n_zones', 2))
+                        _pv_min = _pv_z[0]['from'] if _pv_z else 0.0
+                        _pv_max = _pv_z[-1]['to']  if _pv_z else 100.0
+                        if 'nt_preview_val' not in st.session_state:
+                            st.session_state['nt_preview_val'] = _pv_min + (_pv_max - _pv_min) * 0.55
+                        _pv_col, _ = st.columns(2)
+                        _pv_col.number_input("Value", key='nt_preview_val', step=0.1)
+                    elif nt_graph == "dot":
+                        _pv_z = _zbuild('nt', st.session_state.get('nt_n_zones', 2))
+                        _pv_min = _pv_z[0]['from'] if _pv_z else 0.0
+                        _pv_max = _pv_z[-1]['to']  if _pv_z else 200.0
+                        _pv_nd = st.session_state.get('nt_n_dots', 2)
+                        _pv_cols = st.columns(min(_pv_nd, 4))
+                        for _pv_di in range(min(_pv_nd, 4)):
+                            if f'nt_preview_val_{_pv_di}' not in st.session_state:
+                                st.session_state[f'nt_preview_val_{_pv_di}'] = _pv_min + (_pv_max - _pv_min) * (0.4 + _pv_di * 0.2)
+                            _pv_lbl = st.session_state.get(f'nt_dot_name_{_pv_di}') or f"Dot {_pv_di+1}"
+                            _pv_cols[_pv_di].number_input(_pv_lbl, key=f'nt_preview_val_{_pv_di}', step=0.1)
+                    elif nt_graph == "bar":
+                        _pv_bn = st.session_state.get('nt_bar_n', 2)
+                        _pv_cols = st.columns(min(_pv_bn, 4))
+                        for _pv_bi in range(_pv_bn):
+                            _pv_pfx = f'nt_bt_{_pv_bi}'
+                            _pv_nm = st.session_state.get(f'{_pv_pfx}_name', '').strip() or f"Test {_pv_bi+1}"
+                            if f'{_pv_pfx}_preview_val' not in st.session_state:
+                                st.session_state[f'{_pv_pfx}_preview_val'] = float(
+                                    st.session_state.get(f'{_pv_pfx}_zone_to_0', 5.0)) * 0.6
+                            _pv_cols[_pv_bi % 4].number_input(_pv_nm, key=f'{_pv_pfx}_preview_val', step=0.1)
 
             with nt_prev:
                 st.markdown("""
@@ -1886,7 +1919,7 @@ elif st.session_state.page == "Admin Console":
                 nt_n_zones = st.session_state.get('nt_n_zones', 2)
                 st.markdown("**Zones** (left to right — Zone 1 sets the axis start)")
                 _zrender('nt', nt_n_zones)
-                if st.button("+ Add Zone", key="nt_add_zone_gauge"):
+                if st.button("+ Add Zone", key="nt_add_zone_gauge", use_container_width=True):
                     _n = st.session_state.get('nt_n_zones', 2)
                     _prev = float(st.session_state.get(f'nt_zone_to_{_n-1}', 0.0))
                     st.session_state[f'nt_zone_to_{_n}']     = _prev + 10.0
@@ -1895,14 +1928,6 @@ elif st.session_state.page == "Admin Console":
                     st.session_state[f'nt_zone_label_{_n}']  = ''
                     st.session_state['nt_n_zones'] = _n + 1
                     st.rerun()
-                _nt_gz = _zbuild('nt', nt_n_zones)
-                _nt_g_min = _nt_gz[0]['from'] if _nt_gz else 0.0
-                _nt_g_max = _nt_gz[-1]['to']  if _nt_gz else 100.0
-                _gpv_col, _ = st.columns(2)
-                if 'nt_preview_val' not in st.session_state:
-                    st.session_state['nt_preview_val'] = _nt_g_min + (_nt_g_max - _nt_g_min) * 0.55
-                _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
-                                      help="Sets the sample value shown in the live preview only — not saved")
 
 
             elif nt_graph == "dot":
@@ -1962,7 +1987,7 @@ elif st.session_state.page == "Admin Console":
                 st.markdown("**Scale & Zones** (Zone 1 sets the axis start)")
                 nt_n_zones = st.session_state.get('nt_n_zones', 2)
                 _zrender('nt', nt_n_zones)
-                if st.button("+ Add Zone", key="nt_add_zone_dot"):
+                if st.button("+ Add Zone", key="nt_add_zone_dot", use_container_width=True):
                     _n = st.session_state.get('nt_n_zones', 2)
                     _prev = float(st.session_state.get(f'nt_zone_to_{_n-1}', 0.0))
                     st.session_state[f'nt_zone_to_{_n}']     = _prev + 10.0
@@ -1971,16 +1996,6 @@ elif st.session_state.page == "Admin Console":
                     st.session_state[f'nt_zone_label_{_n}']  = ''
                     st.session_state['nt_n_zones'] = _n + 1
                     st.rerun()
-                _nt_dz = _zbuild('nt', nt_n_zones)
-                _nt_d_min = _nt_dz[0]['from'] if _nt_dz else 0.0
-                _nt_d_max = _nt_dz[-1]['to']  if _nt_dz else 200.0
-                st.markdown("**Preview values** *(not saved — used in the live preview only)*")
-                _dpv_cols = st.columns(min(nd, 2))
-                for _di in range(min(nd, 2)):
-                    if f'nt_preview_val_{_di}' not in st.session_state:
-                        st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
-                    _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
-                    _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
 
 
             elif nt_graph == "bar":
@@ -2042,16 +2057,10 @@ elif st.session_state.page == "Admin Console":
                         st.session_state[f'{_bpfx}_zone_label_1']   = ''
                     if f'{_bpfx}_zone_from_0' not in st.session_state:
                         st.session_state[f'{_bpfx}_zone_from_0'] = 0.0
-                    _bpv_col, _ = st.columns(2)
-                    if f'{_bpfx}_preview_val' not in st.session_state:
-                        st.session_state[f'{_bpfx}_preview_val'] = float(
-                            st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
-                    _bpv_col.number_input("Preview value *(not saved)*", key=f'{_bpfx}_preview_val', step=0.1,
-                                          help="Sets the sample value shown in the live preview only — not saved")
                     _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
                     st.markdown("**Zones** (Zone 1 sets the axis start)")
                     _zrender(_bpfx, _bnz, rm_key_sfx=f"_bt{_bi}")
-                    if st.button(f"+ Add Zone (Test {_bi+1})", key=f'{_bpfx}_add_zone'):
+                    if st.button(f"+ Add Zone (Test {_bi+1})", key=f'{_bpfx}_add_zone', use_container_width=True):
                         _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
                         _prev = float(st.session_state.get(f'{_bpfx}_zone_to_{_n-1}', 0.0))
                         st.session_state[f'{_bpfx}_zone_to_{_n}']     = _prev + 10.0
@@ -2176,7 +2185,7 @@ elif st.session_state.page == "Admin Console":
                     _tc_nz = st.session_state.get("nt_tc_n_zones", 2)
                     st.markdown("**Custom zones** (Zone 1 sets the axis start)")
                     _zrender("nt_tc", _tc_nz, rm_key_sfx="_tc")
-                    if st.button("+ Add Zone", key="nt_tc_add_zone"):
+                    if st.button("+ Add Zone", key="nt_tc_add_zone", use_container_width=True):
                         _n = st.session_state.get("nt_tc_n_zones", 2)
                         _prev_to = float(st.session_state.get(f"nt_tc_zone_to_{_n-1}", 0.0))
                         st.session_state[f"nt_tc_zone_to_{_n}"]     = _prev_to + 10.0
