@@ -1012,11 +1012,28 @@ elif st.session_state.page == "Admin Console":
                             if _fut_anchor.weekday() != 0:
                                 st.warning("⚠️ Start date must be a Monday.")
                             else:
-                                _slot = 'future' if _fut_anchor > date.today() else 'current'
-                                if _slot == 'current':
-                                    st.info("ℹ️ This date is today or in the past — the new pattern will become active immediately and the current one will be archived as the previous pattern.")
-                                else:
+                                _today = date.today()
+                                if _fut_anchor > _today:
+                                    _slot = 'future'
                                     st.info(f"ℹ️ The current pattern stays active until {_fut_anchor}, when this new pattern will take over automatically.")
+                                elif _fut_anchor == _today:
+                                    _slot = 'current'
+                                    st.info("ℹ️ Starting today — the new pattern becomes active immediately and the current one moves to Previous.")
+                                else:
+                                    # Past date — intent is ambiguous, ask
+                                    st.warning(f"⚠️ {_fut_anchor} is in the past. What did you intend?")
+                                    _intent = st.radio(
+                                        "Treat this pattern as:",
+                                        ["Replace current (make this the active pattern from now)",
+                                         "Store as previous (historical record only — current pattern unchanged)"],
+                                        key=f"sm_past_intent_{_sel}"
+                                    )
+                                    _slot = 'current' if _intent.startswith("Replace") else 'previous'
+                                    if _slot == 'current':
+                                        st.caption("The current pattern will move to Previous, and this pattern becomes active.")
+                                    else:
+                                        st.caption("This pattern will be stored as the Previous reference. The current pattern is not affected.")
+
                                 _fut_nwks = 1 if _fut_type == "Weekly" else 2
                                 _fut_dst  = _render_shift_day_editor("sf", _pre_pat, _pre_days, _fut_nwks)
                                 if st.button("💾 Save Pattern Change", type="primary", key=f"sm_fut_save_{_sel}"):
@@ -1027,6 +1044,8 @@ elif st.session_state.page == "Admin Console":
                                     st.session_state[_fut_edit_key] = False
                                     if _slot == 'current':
                                         st.success(f"✅ New pattern saved and now active for {_sel}.")
+                                    elif _slot == 'previous':
+                                        st.success(f"✅ Historical pattern stored as previous reference for {_sel}.")
                                     else:
                                         st.success(f"✅ Pattern change scheduled from {_fut_anchor}.")
                                     st.rerun()

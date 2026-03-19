@@ -746,7 +746,8 @@ class ClinicCRM:
         """
         Save a shift pattern for a staff member.
         slot='current': replaces current immediately (current→previous, old previous→archived).
-        slot='future': schedules for a future date (replaces any existing future pattern).
+        slot='future':  schedules for a future date (replaces any existing future pattern).
+        slot='previous': stores as a historical reference only (archives any existing previous; current unchanged).
         days_data: list of (week_number, day_of_week, start_time, end_time) tuples.
         """
         self.connect()
@@ -758,6 +759,9 @@ class ClinicCRM:
         elif slot == 'future':
             self.cursor.execute(
                 "UPDATE staff_shift_patterns SET status='archived' WHERE username=? AND status='future'", (username,))
+        elif slot == 'previous':
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='archived' WHERE username=? AND status='previous'", (username,))
         self.cursor.execute("""
             INSERT INTO staff_shift_patterns (username, pattern_type, anchor_date, status, created_by)
             VALUES (?, ?, ?, ?, ?)
