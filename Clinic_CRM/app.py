@@ -1472,9 +1472,9 @@ elif st.session_state.page == "Admin Console":
         # ==========================================
 
         def _zfrom(pfx, i):
-            """Zone i's 'from' — live-derived: prev zone's 'to', or axis_start for i=0."""
+            """Zone i's 'from' — Zone 1 is editable; all others inherit the previous zone's 'to'."""
             if i == 0:
-                return float(st.session_state.get(f'{pfx}_axis_start', 0.0))
+                return float(st.session_state.get(f'{pfx}_zone_from_0', 0.0))
             return float(st.session_state.get(f'{pfx}_zone_to_{i-1}', 0.0))
 
         def _zbuild(pfx, n):
@@ -1496,11 +1496,11 @@ elif st.session_state.page == "Admin Console":
             st.session_state[f'{pfx}_n_zones'] = n
             # Axis start = first zone's 'from' (or axis_min fallback)
             axis_start = float(zones[0]['from']) if zones else float(config.get('axis_min', 0.0))
-            st.session_state[f'{pfx}_axis_start'] = axis_start
-            # Clear stale zone keys
+            # Clear stale zone keys, then set zone_from_0 (the editable axis start)
             for _k in list(st.session_state.keys()):
                 if _k.startswith(f'{pfx}_zone_'):
                     del st.session_state[_k]
+            st.session_state[f'{pfx}_zone_from_0'] = axis_start
             for i, z in enumerate(zones):
                 st.session_state[f'{pfx}_zone_to_{i}']     = float(z.get('to', axis_start + (i+1)*10.0))
                 color = z.get('color', '#D4EDDA')
@@ -1543,8 +1543,10 @@ elif st.session_state.page == "Admin Console":
 
         def _zrender(pfx, n, rm_key_sfx=""):
             """
-            Render zone editor rows (axis_start is displayed above this call).
-            - 'From' is read-only, derived live from previous 'To'.
+            Render zone editor rows.
+            - Zone 1 'From' is editable — it defines the chart axis start.
+            - All other zones' 'From' is read-only, inherited from the previous zone's 'To'.
+            - Zone 1 cannot be deleted. Clicking its remove button shows an explanation.
             - Red ⚠ if 'to' <= 'from' (zone has zero or negative width).
             - Transparent checkbox skips zone colour background in charts.
             Returns True if any zones have validation issues.
@@ -1570,8 +1572,8 @@ elif st.session_state.page == "Admin Console":
                 st.rerun()
 
             has_issues = False
-            _zh = st.columns([1.0, 1.2, 2.8, 2.0, 0.7, 0.8])
-            for _lbl, _c in zip(["From ↓", "To", "Colour", "Label", "Transp.", ""], _zh):
+            _zh = st.columns([1.2, 1.2, 2.8, 2.0, 0.7, 0.8])
+            for _lbl, _c in zip(["From", "To", "Colour", "Label", "Transp.", ""], _zh):
                 _c.caption(_lbl)
             for i in range(n):
                 from_v = _zfrom(pfx, i)
@@ -1579,9 +1581,15 @@ elif st.session_state.page == "Admin Console":
                 bad    = to_v <= from_v
                 if bad:
                     has_issues = True
-                _zc = st.columns([1.0, 1.2, 2.8, 2.0, 0.7, 0.8])
-                # From: read-only, warning colour if bad
-                _zc[0].markdown(f"**:red[{from_v:g} ⚠]**" if bad else f"**{from_v:g}**")
+                _zc = st.columns([1.2, 1.2, 2.8, 2.0, 0.7, 0.8])
+                # From: editable for Zone 1; read-only (inherited) for all others
+                if i == 0:
+                    if f'{pfx}_zone_from_0' not in st.session_state:
+                        st.session_state[f'{pfx}_zone_from_0'] = 0.0
+                    _zc[0].number_input("From", key=f'{pfx}_zone_from_0',
+                                        label_visibility="collapsed", step=0.1)
+                else:
+                    _zc[0].markdown(f"**:red[{from_v:g} ⚠]**" if bad else f"*{from_v:g}*")
                 # To: number input
                 if f'{pfx}_zone_to_{i}' not in st.session_state:
                     st.session_state[f'{pfx}_zone_to_{i}'] = from_v + 10.0
@@ -1609,14 +1617,26 @@ elif st.session_state.page == "Admin Console":
                     st.session_state[f'{pfx}_zone_transp_{i}'] = False
                 _zc[4].checkbox("", key=f'{pfx}_zone_transp_{i}',
                                 label_visibility="collapsed")
-                # Remove — defer the actual shift to next render to avoid writing
-                # to already-instantiated widget keys in the same pass
-                if _zc[5].button("✕", key=f'{pfx}_zone_rm_{i}{rm_key_sfx}',
-                                  use_container_width=True) and n > 1:
-                    st.session_state[_rm_key] = i
-                    st.rerun()
+                # Remove — Zone 1 cannot be deleted (it defines the axis start)
+                if i == 0:
+                    if _zc[5].button("✕", key=f'{pfx}_zone_rm_0{rm_key_sfx}', use_container_width=True):
+                        st.session_state[f'{pfx}_zone_rm_blocked'] = True
+                else:
+                    # Defer removal to avoid writing widget-bound keys mid-render
+                    if _zc[5].button("✕", key=f'{pfx}_zone_rm_{i}{rm_key_sfx}',
+                                      use_container_width=True) and n > 1:
+                        st.session_state[_rm_key] = i
+                        st.rerun()
                 if bad:
-                    st.warning(f"Zone {i+1}: 'to' ({to_v:g}) must be > 'from' ({from_v:g})", icon="⚠️")
+                    st.warning(f"Zone {i+1}: 'To' ({to_v:g}) must be greater than 'From' ({from_v:g})", icon="⚠️")
+
+            if st.session_state.pop(f'{pfx}_zone_rm_blocked', False):
+                st.info(
+                    "**Zone 1 cannot be removed** — its 'From' value sets the start of the chart axis. "
+                    "All other zones can be deleted. If you don't want a coloured band here, "
+                    "tick **Transp.** to make it invisible while keeping the axis boundary.",
+                    icon="ℹ️"
+                )
             return has_issues
 
         # ==========================================
@@ -1842,14 +1862,8 @@ elif st.session_state.page == "Admin Console":
                     st.session_state['nt_show_axis_labels'] = True
                 _gc2.checkbox("Show min/max labels", key='nt_show_axis_labels')
 
-                _az_col, _ = st.columns(2)
-                if 'nt_axis_start' not in st.session_state:
-                    st.session_state['nt_axis_start'] = 0.0
-                _az_col.number_input("Axis Start (first zone 'from')",
-                                     key='nt_axis_start', step=0.1)
-
                 nt_n_zones = st.session_state.get('nt_n_zones', 2)
-                st.markdown("**Zones** (left to right)")
+                st.markdown("**Zones** (left to right — Zone 1 sets the axis start)")
                 _zrender('nt', nt_n_zones)
                 if st.button("+ Add Zone", key="nt_add_zone_gauge"):
                     _n = st.session_state.get('nt_n_zones', 2)
@@ -1940,12 +1954,7 @@ elif st.session_state.page == "Admin Console":
                     st.session_state['nt_n_dots'] = nd + 1
                     st.rerun()
 
-                st.markdown("**Scale & Zones**")
-                _az_col, _ = st.columns(2)
-                if 'nt_axis_start' not in st.session_state:
-                    st.session_state['nt_axis_start'] = 0.0
-                _az_col.number_input("Axis Start (first zone 'from')",
-                                     key='nt_axis_start', step=0.1)
+                st.markdown("**Scale & Zones** (Zone 1 sets the axis start)")
                 nt_n_zones = st.session_state.get('nt_n_zones', 2)
                 _zrender('nt', nt_n_zones)
                 if st.button("+ Add Zone", key="nt_add_zone_dot"):
@@ -2043,15 +2052,16 @@ elif st.session_state.page == "Admin Console":
                         st.session_state[f'{_bpfx}_zone_color_1']   = '#FFCCCB'
                         st.session_state[f'{_bpfx}_zone_transp_1']  = False
                         st.session_state[f'{_bpfx}_zone_label_1']   = ''
-                    _baz_col, _bpv_col = st.columns(2)
-                    _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
+                    if f'{_bpfx}_zone_from_0' not in st.session_state:
+                        st.session_state[f'{_bpfx}_zone_from_0'] = 0.0
+                    _bpv_col, _ = st.columns(2)
                     if f'{_bpfx}_preview_val' not in st.session_state:
                         st.session_state[f'{_bpfx}_preview_val'] = float(
                             st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
                     _bpv_col.number_input("Preview value *(not saved)*", key=f'{_bpfx}_preview_val', step=0.1,
                                           help="Sets the sample value shown in the live preview only — not saved")
                     _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
-                    st.markdown("**Zones**")
+                    st.markdown("**Zones** (Zone 1 sets the axis start)")
                     _zrender(_bpfx, _bnz, rm_key_sfx=f"_bt{_bi}")
                     if st.button(f"+ Add Zone (Test {_bi+1})", key=f'{_bpfx}_add_zone'):
                         _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
@@ -2464,17 +2474,14 @@ elif st.session_state.page == "Admin Console":
                                 _eba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
                                                            st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
                                 st.session_state[f'{_bpfx}_alertcol'] = _eba_hex
-                            if f'{_bpfx}_axis_start' not in st.session_state:
-                                st.session_state[f'{_bpfx}_axis_start'] = 0.0
-                            _baz_col, _bpv_col = st.columns(2)
-                            _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
+                            _bpv_col, _ = st.columns(2)
                             if f'{_bpfx}_preview_val' not in st.session_state:
                                 st.session_state[f'{_bpfx}_preview_val'] = float(
                                     st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
                             _bpv_col.number_input("Preview value", key=f'{_bpfx}_preview_val', step=0.1,
                                                   help="Used in the live chart preview only")
                             _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
-                            st.markdown("**Zones**")
+                            st.markdown("**Zones** (Zone 1 sets the axis start)")
                             _zrender(_bpfx, _bnz, rm_key_sfx=f"_etbt{_bi}")
                             if st.button(f"+ Add Zone ({_bt_name})", key=f'{_bpfx}_et_add_zone'):
                                 _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
@@ -2526,12 +2533,8 @@ elif st.session_state.page == "Admin Console":
                             if 'et_show_axis_labels' not in st.session_state:
                                 st.session_state['et_show_axis_labels'] = True
                             _etc2.checkbox("Show min/max labels", key='et_show_axis_labels')
-                            _etaz_col, _ = st.columns(2)
-                            if 'et_axis_start' not in st.session_state:
-                                st.session_state['et_axis_start'] = 0.0
-                            _etaz_col.number_input("Axis Start", key='et_axis_start', step=0.1)
                             _et_nz = st.session_state.get('et_n_zones', 2)
-                            st.markdown("**Zones**")
+                            st.markdown("**Zones** (Zone 1 sets the axis start)")
                             _zrender('et', _et_nz)
                             if st.button("+ Add Zone", key="et_add_zone"):
                                 _n = st.session_state.get('et_n_zones', 2)
@@ -2593,10 +2596,7 @@ elif st.session_state.page == "Admin Console":
                             if _et_nd < 2 and st.button("+ Add Dot", key="et_add_dot"):
                                 st.session_state['et_n_dots'] = _et_nd + 1
                                 st.rerun()
-                            if 'et_axis_start' not in st.session_state:
-                                st.session_state['et_axis_start'] = 0.0
-                            st.number_input("Axis Start", key='et_axis_start', step=0.1)
-                            st.markdown("**Zones**")
+                            st.markdown("**Zones** (Zone 1 sets the axis start)")
                             _et_nz = st.session_state.get('et_n_zones', 2)
                             _zrender('et', _et_nz)
                             if st.button("+ Add Zone", key="et_add_zone_dot"):
