@@ -1642,9 +1642,9 @@ elif st.session_state.page == "Admin Console":
         with st.expander("➕ Add New Test Group", expanded=False):
             from modules.charts import render_gauge, render_dot, render_bars, render_text
 
-            nt_left, nt_right = st.columns([1.6, 1], gap="large")
+            nt_s1, nt_prev = st.columns([1.6, 1], gap="large")
 
-            with nt_left:
+            with nt_s1:
                 # ---- STEP 1: Graph type ----
                 st.markdown("#### Step 1 — Chart Type")
                 nt_graph = st.radio(
@@ -1673,403 +1673,8 @@ elif st.session_state.page == "Admin Console":
                 }
                 st.caption(_type_info[nt_graph])
 
-                st.divider()
 
-                # ---- STEP 2: Conditional configuration ----
-                st.markdown("#### Step 2 — Configuration")
-
-                if nt_graph == "gauge":
-                    _gc1, _gc2 = st.columns(2)
-                    nt_gauge_style = _gc1.radio("Style", ["curved", "straight"],
-                                                index=["curved","straight"].index(
-                                                    st.session_state.get('nt_gauge_style','curved')),
-                                                key="nt_gauge_style_radio")
-                    st.session_state['nt_gauge_style'] = nt_gauge_style
-                    if 'nt_show_axis_labels' not in st.session_state:
-                        st.session_state['nt_show_axis_labels'] = True
-                    _gc2.checkbox("Show min/max labels", key='nt_show_axis_labels')
-
-                    _az_col, _ = st.columns(2)
-                    if 'nt_axis_start' not in st.session_state:
-                        st.session_state['nt_axis_start'] = 0.0
-                    _az_col.number_input("Axis Start (first zone 'from')",
-                                         key='nt_axis_start', step=0.1)
-
-                    nt_n_zones = st.session_state.get('nt_n_zones', 2)
-                    st.markdown("**Zones** (left to right)")
-                    _zrender('nt', nt_n_zones)
-                    if st.button("+ Add Zone", key="nt_add_zone_gauge"):
-                        _n = st.session_state.get('nt_n_zones', 2)
-                        _prev = float(st.session_state.get(f'nt_zone_to_{_n-1}', 0.0))
-                        st.session_state[f'nt_zone_to_{_n}']     = _prev + 10.0
-                        st.session_state[f'nt_zone_color_{_n}']  = '#D4EDDA'
-                        st.session_state[f'nt_zone_transp_{_n}'] = False
-                        st.session_state[f'nt_zone_label_{_n}']  = ''
-                        st.session_state['nt_n_zones'] = _n + 1
-                        st.rerun()
-                    _nt_gz = _zbuild('nt', nt_n_zones)
-                    _nt_g_min = _nt_gz[0]['from'] if _nt_gz else 0.0
-                    _nt_g_max = _nt_gz[-1]['to']  if _nt_gz else 100.0
-                    _gpv_col, _ = st.columns(2)
-                    if 'nt_preview_val' not in st.session_state:
-                        st.session_state['nt_preview_val'] = _nt_g_min + (_nt_g_max - _nt_g_min) * 0.55
-                    _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
-                                          help="Used in the live chart preview only")
-                    st.markdown("**Trend Chart**")
-                    _tc1, _tc2 = st.columns(2)
-                    with _tc1:
-                        _nt_trend_colour_hex = _palette_select(
-                            "Trend line colour", "nt_trend_colour",
-                            st.session_state.get("nt_trend_colour", "#003366"), PALETTE
-                        )
-                        st.session_state["nt_trend_colour"] = _nt_trend_colour_hex
-                    _nt_trend_style = _tc2.radio("Line style", ["Solid", "Dashed"],
-                                                  index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                  key="nt_trend_style_radio", horizontal=True)
-                    st.session_state["nt_trend_style"] = _nt_trend_style
-                    _nt_show_markers = st.checkbox("Mark each data point", key="nt_show_markers",
-                                                    value=st.session_state.get("nt_show_markers", False))
-
-                elif nt_graph == "dot":
-                    # Initialize dot state if missing
-                    if 'nt_n_dots' not in st.session_state:
-                        st.session_state['nt_n_dots'] = 2
-                        for _di in range(2):
-                            st.session_state[f'nt_dot_name_{_di}']   = ''
-                            st.session_state[f'nt_dot_label_{_di}']  = f'T{_di+1}'
-                            st.session_state[f'nt_dot_fill_{_di}']   = '#003366'
-                            st.session_state[f'nt_dot_stroke_{_di}'] = '#003366'
-                    nd = st.session_state['nt_n_dots']
-
-                    st.markdown("**Dots** (1–4)")
-                    _dh = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
-                    for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh):
-                        _c.caption(_lbl)
-                    for _di in range(nd):
-                        if f'nt_dot_name_{_di}' not in st.session_state:
-                            st.session_state[f'nt_dot_name_{_di}'] = ''
-                        if f'nt_dot_label_{_di}' not in st.session_state:
-                            st.session_state[f'nt_dot_label_{_di}'] = ''
-                        if f'nt_dot_fill_{_di}' not in st.session_state:
-                            st.session_state[f'nt_dot_fill_{_di}'] = '#003366'
-                        if f'nt_dot_stroke_{_di}' not in st.session_state:
-                            st.session_state[f'nt_dot_stroke_{_di}'] = '#003366'
-                        _dc = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
-                        _dc[0].text_input("Test Name", key=f'nt_dot_name_{_di}', label_visibility="collapsed")
-                        _dc[1].text_input("Label",     key=f'nt_dot_label_{_di}', label_visibility="collapsed")
-                        with _dc[2]:
-                            _df_hex = _palette_select("Fill", f'nt_dot_fill_{_di}',
-                                                      st.session_state.get(f'nt_dot_fill_{_di}', '#003366'), PALETTE)
-                            st.session_state[f'nt_dot_fill_{_di}'] = _df_hex
-                        with _dc[3]:
-                            _ds_hex = _palette_select("Stroke", f'nt_dot_stroke_{_di}',
-                                                      st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'), PALETTE)
-                            st.session_state[f'nt_dot_stroke_{_di}'] = _ds_hex
-                        if _dc[4].button("✕", key=f'nt_dot_rm_{_di}') and nd > 1:
-                            for _j in range(_di, nd - 1):
-                                for _s in ['name', 'label', 'fill', 'stroke']:
-                                    src = f'nt_dot_{_s}_{_j+1}'
-                                    dst = f'nt_dot_{_s}_{_j}'
-                                    if src in st.session_state:
-                                        st.session_state[dst] = st.session_state.pop(src)
-                            for _s in ['name', 'label', 'fill', 'stroke']:
-                                _k = f'nt_dot_{_s}_{nd-1}'
-                                if _k in st.session_state:
-                                    del st.session_state[_k]
-                            st.session_state['nt_n_dots'] = nd - 1
-                            st.rerun()
-                    if nd < 2 and st.button("+ Add Dot", key="nt_add_dot"):
-                        st.session_state['nt_n_dots'] = nd + 1
-                        st.rerun()
-
-                    st.markdown("**Zones**")
-                    _az_col, _ = st.columns(2)
-                    if 'nt_axis_start' not in st.session_state:
-                        st.session_state['nt_axis_start'] = 0.0
-                    _az_col.number_input("Axis Start (first zone 'from')",
-                                         key='nt_axis_start', step=0.1)
-                    nt_n_zones = st.session_state.get('nt_n_zones', 2)
-                    _zrender('nt', nt_n_zones)
-                    if st.button("+ Add Zone", key="nt_add_zone_dot"):
-                        _n = st.session_state.get('nt_n_zones', 2)
-                        _prev = float(st.session_state.get(f'nt_zone_to_{_n-1}', 0.0))
-                        st.session_state[f'nt_zone_to_{_n}']     = _prev + 10.0
-                        st.session_state[f'nt_zone_color_{_n}']  = '#D4EDDA'
-                        st.session_state[f'nt_zone_transp_{_n}'] = False
-                        st.session_state[f'nt_zone_label_{_n}']  = ''
-                        st.session_state['nt_n_zones'] = _n + 1
-                        st.rerun()
-                    _nt_dz = _zbuild('nt', nt_n_zones)
-                    _nt_d_min = _nt_dz[0]['from'] if _nt_dz else 0.0
-                    _nt_d_max = _nt_dz[-1]['to']  if _nt_dz else 200.0
-                    st.markdown("**Preview values**")
-                    _dpv_cols = st.columns(min(nd, 2))
-                    for _di in range(min(nd, 2)):
-                        if f'nt_preview_val_{_di}' not in st.session_state:
-                            st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
-                        _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
-                        _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
-                    st.markdown("**Trend Chart**")
-                    _nt_dot_trend_style = st.radio("Line style", ["Solid", "Dashed"],
-                                                    index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                    key="nt_dot_trend_style_radio", horizontal=True)
-                    st.session_state["nt_trend_style"] = _nt_dot_trend_style
-                    _nt_dot_show_markers = st.checkbox("Mark each data point", key="nt_dot_show_markers",
-                                                        value=st.session_state.get("nt_show_markers", False))
-                    st.session_state["nt_show_markers"] = _nt_dot_show_markers
-
-                elif nt_graph == "bar":
-                    nt_bar_n = int(st.number_input("Number of component tests", min_value=1, max_value=8,
-                                                    value=st.session_state.get('nt_bar_n', 2),
-                                                    key="nt_bar_n_input"))
-                    st.session_state['nt_bar_n'] = nt_bar_n
-                    st.info(
-                        "**Target** must start with `>` or `<` (e.g. `> 1.0` or `< 5.2`). "
-                        "This is what controls when the **Alert Bar** colour is used — "
-                        "if the recorded value misses the target direction, the alert colour is applied.",
-                        icon="ℹ️"
-                    )
-
-                    for _bi in range(nt_bar_n):
-                        _bpfx = f'nt_bt_{_bi}'
-                        st.markdown(f"**Test {_bi+1}**")
-                        _bc1, _bc2, _bc3 = st.columns([2, 1, 1.5])
-                        if f'{_bpfx}_name' not in st.session_state:
-                            st.session_state[f'{_bpfx}_name'] = ''
-                        if f'{_bpfx}_unit' not in st.session_state:
-                            st.session_state[f'{_bpfx}_unit'] = ''
-                        if f'{_bpfx}_target' not in st.session_state:
-                            st.session_state[f'{_bpfx}_target'] = ''
-                        _bc1.text_input("Test Name", key=f'{_bpfx}_name',
-                                         label_visibility="collapsed" if _bi > 0 else "visible")
-                        _bc2.text_input("Unit", key=f'{_bpfx}_unit',
-                                         label_visibility="collapsed" if _bi > 0 else "visible")
-                        _bc3.text_input("Target (e.g. > 1.0)", key=f'{_bpfx}_target',
-                                         label_visibility="collapsed" if _bi > 0 else "visible")
-                        _bcolor1, _bcolor2 = st.columns(2)
-                        if f'{_bpfx}_barcol' not in st.session_state:
-                            st.session_state[f'{_bpfx}_barcol'] = '#003366'
-                        if f'{_bpfx}_alertcol' not in st.session_state:
-                            st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
-                        with _bcolor1:
-                            _bb_hex = _palette_select("Bar colour", f'{_bpfx}_barcol',
-                                                      st.session_state.get(f'{_bpfx}_barcol', '#003366'), PALETTE)
-                            st.session_state[f'{_bpfx}_barcol'] = _bb_hex
-                        with _bcolor2:
-                            _ba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
-                                                      st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
-                            st.session_state[f'{_bpfx}_alertcol'] = _ba_hex
-
-                        if f'{_bpfx}_axis_start' not in st.session_state:
-                            st.session_state[f'{_bpfx}_axis_start'] = 0.0
-                        if f'{_bpfx}_n_zones' not in st.session_state:
-                            st.session_state[f'{_bpfx}_n_zones']        = 2
-                            st.session_state[f'{_bpfx}_zone_to_0']      = 5.0
-                            st.session_state[f'{_bpfx}_zone_color_0']   = '#D4EDDA'
-                            st.session_state[f'{_bpfx}_zone_transp_0']  = False
-                            st.session_state[f'{_bpfx}_zone_label_0']   = ''
-                            st.session_state[f'{_bpfx}_zone_to_1']      = 15.0
-                            st.session_state[f'{_bpfx}_zone_color_1']   = '#FFCCCB'
-                            st.session_state[f'{_bpfx}_zone_transp_1']  = False
-                            st.session_state[f'{_bpfx}_zone_label_1']   = ''
-                        _baz_col, _bpv_col = st.columns(2)
-                        _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
-                        if f'{_bpfx}_preview_val' not in st.session_state:
-                            st.session_state[f'{_bpfx}_preview_val'] = float(
-                                st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
-                        _bpv_col.number_input("Preview value", key=f'{_bpfx}_preview_val', step=0.1,
-                                              help="Used in the live chart preview only")
-                        _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
-                        st.markdown("**Zones**")
-                        _zrender(_bpfx, _bnz, rm_key_sfx=f"_bt{_bi}")
-                        if st.button(f"+ Add Zone (Test {_bi+1})", key=f'{_bpfx}_add_zone'):
-                            _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
-                            _prev = float(st.session_state.get(f'{_bpfx}_zone_to_{_n-1}', 0.0))
-                            st.session_state[f'{_bpfx}_zone_to_{_n}']     = _prev + 10.0
-                            st.session_state[f'{_bpfx}_zone_color_{_n}']  = '#D4EDDA'
-                            st.session_state[f'{_bpfx}_zone_transp_{_n}'] = False
-                            st.session_state[f'{_bpfx}_zone_label_{_n}']  = ''
-                            st.session_state[f'{_bpfx}_n_zones'] = _n + 1
-                            st.rerun()
-                        st.markdown("---")
-
-                    # Group consistency check: all tests should share the same zone upper limit
-                    _nt_bar_limits = []
-                    for _bi in range(nt_bar_n):
-                        _bpfx = f'nt_bt_{_bi}'
-                        _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
-                        _last = st.session_state.get(f'{_bpfx}_zone_to_{_bnz-1}')
-                        if _last is not None:
-                            _nt_bar_limits.append(float(_last))
-                    if len(set(_nt_bar_limits)) > 1:
-                        st.warning(
-                            "All tests in a bar panel should share the same zone upper limit "
-                            "so the chart scale is consistent. "
-                            "Current upper limits: " + ", ".join(f"{l:g}" for l in _nt_bar_limits),
-                            icon="⚠️"
-                        )
-                    st.markdown("**Trend Chart**")
-                    _nt_bar_trend_style = st.radio("Line style", ["Solid", "Dashed"],
-                                                    index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                    key="nt_bar_trend_style_radio", horizontal=True)
-                    st.session_state["nt_trend_style"] = _nt_bar_trend_style
-                    _nt_bar_show_markers = st.checkbox("Mark each data point", key="nt_bar_show_markers",
-                                                        value=st.session_state.get("nt_show_markers", False))
-                    st.session_state["nt_show_markers"] = _nt_bar_show_markers
-
-                elif nt_graph == "none":
-                    st.markdown("**Trend Chart**")
-                    _tc1n, _tc2n = st.columns(2)
-                    with _tc1n:
-                        _nt_none_trend_colour_hex = _palette_select(
-                            "Trend line colour", "nt_trend_colour",
-                            st.session_state.get("nt_trend_colour", "#003366"), PALETTE
-                        )
-                        st.session_state["nt_trend_colour"] = _nt_none_trend_colour_hex
-                    _nt_none_trend_style = _tc2n.radio("Line style", ["Solid", "Dashed"],
-                                                        index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                        key="nt_none_trend_style_radio", horizontal=True)
-                    st.session_state["nt_trend_style"] = _nt_none_trend_style
-                    _nt_none_show_markers = st.checkbox("Mark each data point", key="nt_none_show_markers",
-                                                         value=st.session_state.get("nt_show_markers", False))
-                    st.session_state["nt_show_markers"] = _nt_none_show_markers
-
-                # nothing more needed for none (trend config added above)
-
-                # ---- STEP 3: Metadata & Save (inside a form) ----
-                _step3_label = "#### Step 3 — Metadata (applies to the whole group)" if nt_graph in ("dot", "bar") else "#### Step 3 — Metadata"
-                st.markdown(_step3_label)
-                with st.form("new_test_save_form", clear_on_submit=True):
-                    _m1, _m2 = st.columns(2)
-                    nt_panel_name = _m1.text_input("Test Group Name")
-                    nt_unit       = _m2.text_input("Unit (e.g., bpm, mmol/L)")
-                    nt_target     = st.text_input("Target Display Text (e.g., '60-100' or '>95')")
-                    nt_desc       = st.text_input("Description (optional)")
-
-                    _save = st.form_submit_button("💾 Save", type="primary")
-
-                    if _save:
-                        if not nt_panel_name.strip():
-                            st.warning("Test / Panel Name is required.")
-                        else:
-                            _gt = st.session_state['nt_graph_type']
-
-                            if _gt == "none":
-                                _cfg = {"graph_type": "none"}
-                                _trend = "line"
-                                _defs = [(nt_panel_name.strip(),
-                                          nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
-
-                            elif _gt == "gauge":
-                                _n = st.session_state.get('nt_n_zones', 2)
-                                _zones = _zbuild('nt', _n)
-                                _ax_min = _zones[0]['from'] if _zones else 0.0
-                                _ax_max = _zones[-1]['to']  if _zones else 100.0
-                                _cfg = {
-                                    "graph_type": "gauge",
-                                    "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
-                                    "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
-                                    "axis_min": _ax_min,
-                                    "axis_max": _ax_max,
-                                    "zones": _zones
-                                }
-                                _trend = "line"
-                                _defs = [(nt_panel_name.strip(),
-                                          nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
-
-                            elif _gt == "dot":
-                                _n = st.session_state.get('nt_n_zones', 2)
-                                _zones = _zbuild('nt', _n)
-                                _ax_min = _zones[0]['from'] if _zones else 0.0
-                                _ax_max = _zones[-1]['to']  if _zones else 100.0
-                                _nd = st.session_state.get('nt_n_dots', 2)
-                                _dots = [
-                                    {
-                                        "test_name":    st.session_state.get(f'nt_dot_name_{_di}', ''),
-                                        "label":        st.session_state.get(f'nt_dot_label_{_di}', ''),
-                                        "fill_color":   st.session_state.get(f'nt_dot_fill_{_di}', '#003366'),
-                                        "stroke_color": st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'),
-                                    }
-                                    for _di in range(_nd)
-                                    if st.session_state.get(f'nt_dot_name_{_di}', '').strip()
-                                ]
-                                _primary_cfg = {
-                                    "graph_type": "dot",
-                                    "axis_min": _ax_min,
-                                    "axis_max": _ax_max,
-                                    "zones": _zones,
-                                    "dots": _dots
-                                }
-                                _secondary_cfg = {
-                                    "graph_type": "dot",
-                                    "dot_role": "secondary",
-                                    "axis_min": _ax_min,
-                                    "axis_max": _ax_max,
-                                    "zones": _zones
-                                }
-                                _trend = "bp_trend"
-                                _defs = []
-                                for _di, dot in enumerate(_dots):
-                                    _t_name = dot["test_name"].strip()
-                                    _t_cfg  = json.dumps(_primary_cfg if _di == 0 else _secondary_cfg)
-                                    _defs.append((_t_name,
-                                                  nt_unit.strip(), nt_target.strip(), _t_cfg))
-
-                            elif _gt == "bar":
-                                _trend = "multi_trend"
-                                _defs = []
-                                for _bi in range(st.session_state.get('nt_bar_n', 2)):
-                                    _bpfx = f'nt_bt_{_bi}'
-                                    _bt_name = st.session_state.get(f'{_bpfx}_name', '').strip()
-                                    if not _bt_name:
-                                        continue
-                                    _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
-                                    _bt_zones = _zbuild(_bpfx, _bnz)
-                                    _bt_cfg = {
-                                        "graph_type": "bar",
-                                        "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
-                                        "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
-                                        "zones": _bt_zones
-                                    }
-                                    _defs.append((_bt_name,
-                                                  st.session_state.get(f'{_bpfx}_unit', '').strip(),
-                                                  st.session_state.get(f'{_bpfx}_target', '').strip(),
-                                                  json.dumps(_bt_cfg)))
-
-                            # Write to DB
-                            if not _defs:
-                                st.warning("No valid test definitions to save.")
-                            else:
-                                _trend_cfg = json.dumps({
-                                    "line_colour": st.session_state.get("nt_trend_colour", "#003366"),
-                                    "line_style": "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
-                                    "show_markers": bool(st.session_state.get("nt_show_markers", False))
-                                })
-                                crm.connect()
-                                try:
-                                    crm.cursor.execute("""
-                                        INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description, trend_config)
-                                        VALUES (?, ?, ?, ?, ?)
-                                    """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None, _trend_cfg))
-                                    new_gid = crm.cursor.lastrowid
-                                    for (t_n, t_u, t_t, t_cfg) in _defs:
-                                        crm.cursor.execute("""
-                                            INSERT INTO test_definitions
-                                            (test_name, unit, default_target, chart_config, group_id)
-                                            VALUES (?, ?, ?, ?, ?)
-                                        """, (t_n, t_u, t_t, t_cfg, new_gid))
-                                    crm.conn.commit()
-                                    st.success(f"'{nt_panel_name.strip()}' saved!")
-                                    _nt_reset()
-                                    time.sleep(0.8)
-                                    st.rerun()
-                                except sqlite3.IntegrityError as e:
-                                    st.error(f"Error: {e}")
-                                finally:
-                                    crm.close()
-
-            # ---- RIGHT COLUMN: Live Preview ----
-            with nt_right:
+            with nt_prev:
                 st.markdown("""
                 <style>
                 div[data-testid="column"]:last-of-type > div[data-testid="stVerticalBlock"] {
@@ -2078,7 +1683,6 @@ elif st.session_state.page == "Admin Console":
                 }
                 </style>
                 """, unsafe_allow_html=True)
-                st.markdown("#### Live Preview")
                 try:
                     _gt_prev    = st.session_state['nt_graph_type']
                     _n_prev     = st.session_state.get('nt_n_zones', 2)
@@ -2212,12 +1816,408 @@ elif st.session_state.page == "Admin Console":
                         _b64_prev = base64.b64encode(_prev_pdf).decode()
                         st.markdown(
                             f'<iframe src="data:application/pdf;base64,{_b64_prev}#toolbar=0&navpanes=0" '
-                            f'width="100%" height="420" type="application/pdf"></iframe>',
+                            f'width="100%" height="350" type="application/pdf"></iframe>',
                             unsafe_allow_html=True
                         )
 
                 except Exception as _prev_err:
                     st.caption(f"Preview unavailable: {_prev_err}")
+
+
+            st.divider()
+
+            # ---- STEP 2: Conditional configuration ----
+            st.markdown("#### Step 2 — Configuration")
+
+            if nt_graph == "gauge":
+                _gc1, _gc2 = st.columns(2)
+                nt_gauge_style = _gc1.radio("Style", ["curved", "straight"],
+                                            index=["curved","straight"].index(
+                                                st.session_state.get('nt_gauge_style','curved')),
+                                            key="nt_gauge_style_radio")
+                st.session_state['nt_gauge_style'] = nt_gauge_style
+                if 'nt_show_axis_labels' not in st.session_state:
+                    st.session_state['nt_show_axis_labels'] = True
+                _gc2.checkbox("Show min/max labels", key='nt_show_axis_labels')
+
+                _az_col, _ = st.columns(2)
+                if 'nt_axis_start' not in st.session_state:
+                    st.session_state['nt_axis_start'] = 0.0
+                _az_col.number_input("Axis Start (first zone 'from')",
+                                     key='nt_axis_start', step=0.1)
+
+                nt_n_zones = st.session_state.get('nt_n_zones', 2)
+                st.markdown("**Zones** (left to right)")
+                _zrender('nt', nt_n_zones)
+                if st.button("+ Add Zone", key="nt_add_zone_gauge"):
+                    _n = st.session_state.get('nt_n_zones', 2)
+                    _prev = float(st.session_state.get(f'nt_zone_to_{_n-1}', 0.0))
+                    st.session_state[f'nt_zone_to_{_n}']     = _prev + 10.0
+                    st.session_state[f'nt_zone_color_{_n}']  = '#D4EDDA'
+                    st.session_state[f'nt_zone_transp_{_n}'] = False
+                    st.session_state[f'nt_zone_label_{_n}']  = ''
+                    st.session_state['nt_n_zones'] = _n + 1
+                    st.rerun()
+                _nt_gz = _zbuild('nt', nt_n_zones)
+                _nt_g_min = _nt_gz[0]['from'] if _nt_gz else 0.0
+                _nt_g_max = _nt_gz[-1]['to']  if _nt_gz else 100.0
+                _gpv_col, _ = st.columns(2)
+                if 'nt_preview_val' not in st.session_state:
+                    st.session_state['nt_preview_val'] = _nt_g_min + (_nt_g_max - _nt_g_min) * 0.55
+                _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
+                                      help="Used in the live chart preview only")
+                st.markdown("**Trend Chart**")
+                _tc1, _tc2 = st.columns(2)
+                with _tc1:
+                    _nt_trend_colour_hex = _palette_select(
+                        "Trend line colour", "nt_trend_colour",
+                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
+                    )
+                    st.session_state["nt_trend_colour"] = _nt_trend_colour_hex
+                _nt_trend_style = _tc2.radio("Line style", ["Solid", "Dashed"],
+                                              index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                              key="nt_trend_style_radio", horizontal=True)
+                st.session_state["nt_trend_style"] = _nt_trend_style
+                _nt_show_markers = st.checkbox("Mark each data point", key="nt_show_markers",
+                                                value=st.session_state.get("nt_show_markers", False))
+
+            elif nt_graph == "dot":
+                # Initialize dot state if missing
+                if 'nt_n_dots' not in st.session_state:
+                    st.session_state['nt_n_dots'] = 2
+                    for _di in range(2):
+                        st.session_state[f'nt_dot_name_{_di}']   = ''
+                        st.session_state[f'nt_dot_label_{_di}']  = f'T{_di+1}'
+                        st.session_state[f'nt_dot_fill_{_di}']   = '#003366'
+                        st.session_state[f'nt_dot_stroke_{_di}'] = '#003366'
+                nd = st.session_state['nt_n_dots']
+
+                st.markdown("**Dots** (1–4)")
+                _dh = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
+                for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh):
+                    _c.caption(_lbl)
+                for _di in range(nd):
+                    if f'nt_dot_name_{_di}' not in st.session_state:
+                        st.session_state[f'nt_dot_name_{_di}'] = ''
+                    if f'nt_dot_label_{_di}' not in st.session_state:
+                        st.session_state[f'nt_dot_label_{_di}'] = ''
+                    if f'nt_dot_fill_{_di}' not in st.session_state:
+                        st.session_state[f'nt_dot_fill_{_di}'] = '#003366'
+                    if f'nt_dot_stroke_{_di}' not in st.session_state:
+                        st.session_state[f'nt_dot_stroke_{_di}'] = '#003366'
+                    _dc = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
+                    _dc[0].text_input("Test Name", key=f'nt_dot_name_{_di}', label_visibility="collapsed")
+                    _dc[1].text_input("Label",     key=f'nt_dot_label_{_di}', label_visibility="collapsed")
+                    with _dc[2]:
+                        _df_hex = _palette_select("Fill", f'nt_dot_fill_{_di}',
+                                                  st.session_state.get(f'nt_dot_fill_{_di}', '#003366'), PALETTE)
+                        st.session_state[f'nt_dot_fill_{_di}'] = _df_hex
+                    with _dc[3]:
+                        _ds_hex = _palette_select("Stroke", f'nt_dot_stroke_{_di}',
+                                                  st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'), PALETTE)
+                        st.session_state[f'nt_dot_stroke_{_di}'] = _ds_hex
+                    if _dc[4].button("✕", key=f'nt_dot_rm_{_di}') and nd > 1:
+                        for _j in range(_di, nd - 1):
+                            for _s in ['name', 'label', 'fill', 'stroke']:
+                                src = f'nt_dot_{_s}_{_j+1}'
+                                dst = f'nt_dot_{_s}_{_j}'
+                                if src in st.session_state:
+                                    st.session_state[dst] = st.session_state.pop(src)
+                        for _s in ['name', 'label', 'fill', 'stroke']:
+                            _k = f'nt_dot_{_s}_{nd-1}'
+                            if _k in st.session_state:
+                                del st.session_state[_k]
+                        st.session_state['nt_n_dots'] = nd - 1
+                        st.rerun()
+                if nd < 2 and st.button("+ Add Dot", key="nt_add_dot"):
+                    st.session_state['nt_n_dots'] = nd + 1
+                    st.rerun()
+
+                st.markdown("**Zones**")
+                _az_col, _ = st.columns(2)
+                if 'nt_axis_start' not in st.session_state:
+                    st.session_state['nt_axis_start'] = 0.0
+                _az_col.number_input("Axis Start (first zone 'from')",
+                                     key='nt_axis_start', step=0.1)
+                nt_n_zones = st.session_state.get('nt_n_zones', 2)
+                _zrender('nt', nt_n_zones)
+                if st.button("+ Add Zone", key="nt_add_zone_dot"):
+                    _n = st.session_state.get('nt_n_zones', 2)
+                    _prev = float(st.session_state.get(f'nt_zone_to_{_n-1}', 0.0))
+                    st.session_state[f'nt_zone_to_{_n}']     = _prev + 10.0
+                    st.session_state[f'nt_zone_color_{_n}']  = '#D4EDDA'
+                    st.session_state[f'nt_zone_transp_{_n}'] = False
+                    st.session_state[f'nt_zone_label_{_n}']  = ''
+                    st.session_state['nt_n_zones'] = _n + 1
+                    st.rerun()
+                _nt_dz = _zbuild('nt', nt_n_zones)
+                _nt_d_min = _nt_dz[0]['from'] if _nt_dz else 0.0
+                _nt_d_max = _nt_dz[-1]['to']  if _nt_dz else 200.0
+                st.markdown("**Preview values**")
+                _dpv_cols = st.columns(min(nd, 2))
+                for _di in range(min(nd, 2)):
+                    if f'nt_preview_val_{_di}' not in st.session_state:
+                        st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
+                    _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
+                    _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
+                st.markdown("**Trend Chart**")
+                _nt_dot_trend_style = st.radio("Line style", ["Solid", "Dashed"],
+                                                index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                key="nt_dot_trend_style_radio", horizontal=True)
+                st.session_state["nt_trend_style"] = _nt_dot_trend_style
+                _nt_dot_show_markers = st.checkbox("Mark each data point", key="nt_dot_show_markers",
+                                                    value=st.session_state.get("nt_show_markers", False))
+                st.session_state["nt_show_markers"] = _nt_dot_show_markers
+
+            elif nt_graph == "bar":
+                nt_bar_n = int(st.number_input("Number of component tests", min_value=1, max_value=8,
+                                                value=st.session_state.get('nt_bar_n', 2),
+                                                key="nt_bar_n_input"))
+                st.session_state['nt_bar_n'] = nt_bar_n
+                st.info(
+                    "**Target** must start with `>` or `<` (e.g. `> 1.0` or `< 5.2`). "
+                    "This is what controls when the **Alert Bar** colour is used — "
+                    "if the recorded value misses the target direction, the alert colour is applied.",
+                    icon="ℹ️"
+                )
+
+                for _bi in range(nt_bar_n):
+                    _bpfx = f'nt_bt_{_bi}'
+                    st.markdown(f"**Test {_bi+1}**")
+                    _bc1, _bc2, _bc3 = st.columns([2, 1, 1.5])
+                    if f'{_bpfx}_name' not in st.session_state:
+                        st.session_state[f'{_bpfx}_name'] = ''
+                    if f'{_bpfx}_unit' not in st.session_state:
+                        st.session_state[f'{_bpfx}_unit'] = ''
+                    if f'{_bpfx}_target' not in st.session_state:
+                        st.session_state[f'{_bpfx}_target'] = ''
+                    _bc1.text_input("Test Name", key=f'{_bpfx}_name',
+                                     label_visibility="collapsed" if _bi > 0 else "visible")
+                    _bc2.text_input("Unit", key=f'{_bpfx}_unit',
+                                     label_visibility="collapsed" if _bi > 0 else "visible")
+                    _bc3.text_input("Target (e.g. > 1.0)", key=f'{_bpfx}_target',
+                                     label_visibility="collapsed" if _bi > 0 else "visible")
+                    _bcolor1, _bcolor2 = st.columns(2)
+                    if f'{_bpfx}_barcol' not in st.session_state:
+                        st.session_state[f'{_bpfx}_barcol'] = '#003366'
+                    if f'{_bpfx}_alertcol' not in st.session_state:
+                        st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
+                    with _bcolor1:
+                        _bb_hex = _palette_select("Bar colour", f'{_bpfx}_barcol',
+                                                  st.session_state.get(f'{_bpfx}_barcol', '#003366'), PALETTE)
+                        st.session_state[f'{_bpfx}_barcol'] = _bb_hex
+                    with _bcolor2:
+                        _ba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
+                                                  st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
+                        st.session_state[f'{_bpfx}_alertcol'] = _ba_hex
+
+                    if f'{_bpfx}_axis_start' not in st.session_state:
+                        st.session_state[f'{_bpfx}_axis_start'] = 0.0
+                    if f'{_bpfx}_n_zones' not in st.session_state:
+                        st.session_state[f'{_bpfx}_n_zones']        = 2
+                        st.session_state[f'{_bpfx}_zone_to_0']      = 5.0
+                        st.session_state[f'{_bpfx}_zone_color_0']   = '#D4EDDA'
+                        st.session_state[f'{_bpfx}_zone_transp_0']  = False
+                        st.session_state[f'{_bpfx}_zone_label_0']   = ''
+                        st.session_state[f'{_bpfx}_zone_to_1']      = 15.0
+                        st.session_state[f'{_bpfx}_zone_color_1']   = '#FFCCCB'
+                        st.session_state[f'{_bpfx}_zone_transp_1']  = False
+                        st.session_state[f'{_bpfx}_zone_label_1']   = ''
+                    _baz_col, _bpv_col = st.columns(2)
+                    _baz_col.number_input("Axis Start", key=f'{_bpfx}_axis_start', step=0.1)
+                    if f'{_bpfx}_preview_val' not in st.session_state:
+                        st.session_state[f'{_bpfx}_preview_val'] = float(
+                            st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
+                    _bpv_col.number_input("Preview value", key=f'{_bpfx}_preview_val', step=0.1,
+                                          help="Used in the live chart preview only")
+                    _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                    st.markdown("**Zones**")
+                    _zrender(_bpfx, _bnz, rm_key_sfx=f"_bt{_bi}")
+                    if st.button(f"+ Add Zone (Test {_bi+1})", key=f'{_bpfx}_add_zone'):
+                        _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                        _prev = float(st.session_state.get(f'{_bpfx}_zone_to_{_n-1}', 0.0))
+                        st.session_state[f'{_bpfx}_zone_to_{_n}']     = _prev + 10.0
+                        st.session_state[f'{_bpfx}_zone_color_{_n}']  = '#D4EDDA'
+                        st.session_state[f'{_bpfx}_zone_transp_{_n}'] = False
+                        st.session_state[f'{_bpfx}_zone_label_{_n}']  = ''
+                        st.session_state[f'{_bpfx}_n_zones'] = _n + 1
+                        st.rerun()
+                    st.markdown("---")
+
+                # Group consistency check: all tests should share the same zone upper limit
+                _nt_bar_limits = []
+                for _bi in range(nt_bar_n):
+                    _bpfx = f'nt_bt_{_bi}'
+                    _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                    _last = st.session_state.get(f'{_bpfx}_zone_to_{_bnz-1}')
+                    if _last is not None:
+                        _nt_bar_limits.append(float(_last))
+                if len(set(_nt_bar_limits)) > 1:
+                    st.warning(
+                        "All tests in a bar panel should share the same zone upper limit "
+                        "so the chart scale is consistent. "
+                        "Current upper limits: " + ", ".join(f"{l:g}" for l in _nt_bar_limits),
+                        icon="⚠️"
+                    )
+                st.markdown("**Trend Chart**")
+                _nt_bar_trend_style = st.radio("Line style", ["Solid", "Dashed"],
+                                                index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                key="nt_bar_trend_style_radio", horizontal=True)
+                st.session_state["nt_trend_style"] = _nt_bar_trend_style
+                _nt_bar_show_markers = st.checkbox("Mark each data point", key="nt_bar_show_markers",
+                                                    value=st.session_state.get("nt_show_markers", False))
+                st.session_state["nt_show_markers"] = _nt_bar_show_markers
+
+            elif nt_graph == "none":
+                st.markdown("**Trend Chart**")
+                _tc1n, _tc2n = st.columns(2)
+                with _tc1n:
+                    _nt_none_trend_colour_hex = _palette_select(
+                        "Trend line colour", "nt_trend_colour",
+                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
+                    )
+                    st.session_state["nt_trend_colour"] = _nt_none_trend_colour_hex
+                _nt_none_trend_style = _tc2n.radio("Line style", ["Solid", "Dashed"],
+                                                    index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                                                    key="nt_none_trend_style_radio", horizontal=True)
+                st.session_state["nt_trend_style"] = _nt_none_trend_style
+                _nt_none_show_markers = st.checkbox("Mark each data point", key="nt_none_show_markers",
+                                                     value=st.session_state.get("nt_show_markers", False))
+                st.session_state["nt_show_markers"] = _nt_none_show_markers
+
+            # nothing more needed for none (trend config added above)
+
+            # ---- STEP 3: Metadata & Save (inside a form) ----
+            _step3_label = "#### Step 3 — Metadata (applies to the whole group)" if nt_graph in ("dot", "bar") else "#### Step 3 — Metadata"
+            st.markdown(_step3_label)
+            with st.form("new_test_save_form", clear_on_submit=True):
+                _m1, _m2 = st.columns(2)
+                nt_panel_name = _m1.text_input("Test Group Name")
+                nt_unit       = _m2.text_input("Unit (e.g., bpm, mmol/L)")
+                nt_target     = st.text_input("Target Display Text (e.g., '60-100' or '>95')")
+                nt_desc       = st.text_input("Description (optional)")
+
+                _save = st.form_submit_button("💾 Save", type="primary")
+
+                if _save:
+                    if not nt_panel_name.strip():
+                        st.warning("Test / Panel Name is required.")
+                    else:
+                        _gt = st.session_state['nt_graph_type']
+
+                        if _gt == "none":
+                            _cfg = {"graph_type": "none"}
+                            _trend = "line"
+                            _defs = [(nt_panel_name.strip(),
+                                      nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
+
+                        elif _gt == "gauge":
+                            _n = st.session_state.get('nt_n_zones', 2)
+                            _zones = _zbuild('nt', _n)
+                            _ax_min = _zones[0]['from'] if _zones else 0.0
+                            _ax_max = _zones[-1]['to']  if _zones else 100.0
+                            _cfg = {
+                                "graph_type": "gauge",
+                                "gauge_style": st.session_state.get('nt_gauge_style', 'curved'),
+                                "show_axis_labels": st.session_state.get('nt_show_axis_labels', True),
+                                "axis_min": _ax_min,
+                                "axis_max": _ax_max,
+                                "zones": _zones
+                            }
+                            _trend = "line"
+                            _defs = [(nt_panel_name.strip(),
+                                      nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
+
+                        elif _gt == "dot":
+                            _n = st.session_state.get('nt_n_zones', 2)
+                            _zones = _zbuild('nt', _n)
+                            _ax_min = _zones[0]['from'] if _zones else 0.0
+                            _ax_max = _zones[-1]['to']  if _zones else 100.0
+                            _nd = st.session_state.get('nt_n_dots', 2)
+                            _dots = [
+                                {
+                                    "test_name":    st.session_state.get(f'nt_dot_name_{_di}', ''),
+                                    "label":        st.session_state.get(f'nt_dot_label_{_di}', ''),
+                                    "fill_color":   st.session_state.get(f'nt_dot_fill_{_di}', '#003366'),
+                                    "stroke_color": st.session_state.get(f'nt_dot_stroke_{_di}', '#003366'),
+                                }
+                                for _di in range(_nd)
+                                if st.session_state.get(f'nt_dot_name_{_di}', '').strip()
+                            ]
+                            _primary_cfg = {
+                                "graph_type": "dot",
+                                "axis_min": _ax_min,
+                                "axis_max": _ax_max,
+                                "zones": _zones,
+                                "dots": _dots
+                            }
+                            _secondary_cfg = {
+                                "graph_type": "dot",
+                                "dot_role": "secondary",
+                                "axis_min": _ax_min,
+                                "axis_max": _ax_max,
+                                "zones": _zones
+                            }
+                            _trend = "bp_trend"
+                            _defs = []
+                            for _di, dot in enumerate(_dots):
+                                _t_name = dot["test_name"].strip()
+                                _t_cfg  = json.dumps(_primary_cfg if _di == 0 else _secondary_cfg)
+                                _defs.append((_t_name,
+                                              nt_unit.strip(), nt_target.strip(), _t_cfg))
+
+                        elif _gt == "bar":
+                            _trend = "multi_trend"
+                            _defs = []
+                            for _bi in range(st.session_state.get('nt_bar_n', 2)):
+                                _bpfx = f'nt_bt_{_bi}'
+                                _bt_name = st.session_state.get(f'{_bpfx}_name', '').strip()
+                                if not _bt_name:
+                                    continue
+                                _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
+                                _bt_zones = _zbuild(_bpfx, _bnz)
+                                _bt_cfg = {
+                                    "graph_type": "bar",
+                                    "bar_color":       st.session_state.get(f'{_bpfx}_barcol',   '#003366'),
+                                    "bar_alert_color": st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'),
+                                    "zones": _bt_zones
+                                }
+                                _defs.append((_bt_name,
+                                              st.session_state.get(f'{_bpfx}_unit', '').strip(),
+                                              st.session_state.get(f'{_bpfx}_target', '').strip(),
+                                              json.dumps(_bt_cfg)))
+
+                        # Write to DB
+                        if not _defs:
+                            st.warning("No valid test definitions to save.")
+                        else:
+                            _trend_cfg = json.dumps({
+                                "line_colour": st.session_state.get("nt_trend_colour", "#003366"),
+                                "line_style": "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
+                                "show_markers": bool(st.session_state.get("nt_show_markers", False))
+                            })
+                            crm.connect()
+                            try:
+                                crm.cursor.execute("""
+                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description, trend_config)
+                                    VALUES (?, ?, ?, ?, ?)
+                                """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None, _trend_cfg))
+                                new_gid = crm.cursor.lastrowid
+                                for (t_n, t_u, t_t, t_cfg) in _defs:
+                                    crm.cursor.execute("""
+                                        INSERT INTO test_definitions
+                                        (test_name, unit, default_target, chart_config, group_id)
+                                        VALUES (?, ?, ?, ?, ?)
+                                    """, (t_n, t_u, t_t, t_cfg, new_gid))
+                                crm.conn.commit()
+                                st.success(f"'{nt_panel_name.strip()}' saved!")
+                                _nt_reset()
+                                time.sleep(0.8)
+                                st.rerun()
+                            except sqlite3.IntegrityError as e:
+                                st.error(f"Error: {e}")
+                            finally:
+                                crm.close()
 
         st.divider()
 
