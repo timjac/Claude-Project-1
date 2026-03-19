@@ -856,8 +856,14 @@ elif st.session_state.page == "Admin Console":
                     _sel_role = _sel_row['Role']
                     _is_self  = (st.session_state.get('username') == _sel)
                     _is_last  = (len(df_staff) <= 1)
-                    _sec_key  = f"admin_section_{_sel}"
-                    _cur_sec  = st.session_state.get(_sec_key)
+                    _sec_key    = f"admin_section_{_sel}"
+                    _target_key = f"admin_section_target_{_sel}"
+                    _cur_sec    = st.session_state.get(_sec_key)
+
+                    # If a pending target exists, transition to it cleanly (second rerun after clear)
+                    if _target_key in st.session_state:
+                        st.session_state[_sec_key] = st.session_state.pop(_target_key)
+                        st.rerun()
 
                     st.caption(f"**{_sel}** — {_sel_role}")
                     st.divider()
@@ -880,7 +886,13 @@ elif st.session_state.page == "Admin Console":
                             type="primary" if _active else "secondary",
                             use_container_width=True
                         ):
-                            st.session_state[_sec_key] = None if _active else _sec_id
+                            if _active:
+                                # Toggle off — simple clear
+                                st.session_state[_sec_key] = None
+                            else:
+                                # Switching — clear current first, queue target for next rerun
+                                st.session_state[_sec_key] = None
+                                st.session_state[_target_key] = _sec_id
                             st.rerun()
 
                     if _cur_sec:
