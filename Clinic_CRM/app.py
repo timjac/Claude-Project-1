@@ -1760,7 +1760,7 @@ elif st.session_state.page == "Admin Console":
                     # Trend config from current session state
                     _tc_n = (1 if _gt_prev in ("gauge", "none")
                              else st.session_state.get("nt_n_dots", 2) if _gt_prev == "dot"
-                             else st.session_state.get("nt_bar_n", 2))
+                             else int(st.session_state.get("nt_bar_n_input", st.session_state.get("nt_bar_n", 2))))
                     _tc_colours = [st.session_state.get(f"nt_trend_colour_{_i}", "#003366")
                                    for _i in range(_tc_n)]
                     # Resolve trend zones for preview
@@ -1853,7 +1853,7 @@ elif st.session_state.page == "Admin Console":
                                 ))
 
                     elif _gt_prev == "bar":
-                        _bar_n = st.session_state.get('nt_bar_n', 2)
+                        _bar_n = int(st.session_state.get('nt_bar_n_input', st.session_state.get('nt_bar_n', 2)))
                         for _bi in range(_bar_n):
                             _bpfx = f'nt_bt_{_bi}'
                             _bt_name = st.session_state.get(f'{_bpfx}_name', '') or f"Test {_bi+1}"
