@@ -552,7 +552,7 @@ elif st.session_state.page == "Dashboard":
                         df_t = pd.DataFrame(filtered_tests, columns=[
                             'Date', 'Test', 'Value', 'Unit', 'Group', 'Config', 'ResultNote', 'Target', 'Chart',
                             'ResultID', 'Status', 'TakenOn', 'TakenBy', 'TakenNote', 'RecOn', 'LogBy', 'TrendChart',
-                            'TrendConfig'
+                            'TrendConfig', 'ResultDisplay'
                         ])
                         
                         st.dataframe(
