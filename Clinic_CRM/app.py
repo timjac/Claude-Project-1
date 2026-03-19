@@ -1031,8 +1031,31 @@ elif st.session_state.page == "Admin Console":
                                     _slot = 'current' if _intent.startswith("Replace") else 'previous'
                                     if _slot == 'current':
                                         st.caption("The current pattern will move to Previous, and this pattern becomes active.")
+                                        # Warn if this would leave Previous with a later start date than Current
+                                        if _sm_pat and date.fromisoformat(_sm_pat['anchor_date']) > _fut_anchor:
+                                            st.error(
+                                                f"**Date conflict:** the existing current pattern starts on "
+                                                f"**{_sm_pat['anchor_date']}**, which is later than the new "
+                                                f"pattern's start date of **{_fut_anchor}**. After saving, "
+                                                f"Previous would be dated *after* Current — which is "
+                                                f"historically inconsistent.\n\n"
+                                                f"Before saving, review whether you need to adjust the start "
+                                                f"date of this new pattern (above) so it is later than "
+                                                f"{_sm_pat['anchor_date']}."
+                                            )
                                     else:
                                         st.caption("This pattern will be stored as the Previous reference. The current pattern is not affected.")
+                                        # Warn if this would leave Previous with a later start date than Current
+                                        if _sm_pat and date.fromisoformat(_sm_pat['anchor_date']) < _fut_anchor:
+                                            st.error(
+                                                f"**Date conflict:** the existing current pattern starts on "
+                                                f"**{_sm_pat['anchor_date']}**, which is earlier than this "
+                                                f"pattern's start date of **{_fut_anchor}**. Storing this as "
+                                                f"Previous would mean Previous is dated *after* Current — "
+                                                f"which is historically inconsistent.\n\n"
+                                                f"Consider whether this pattern should instead replace the "
+                                                f"current one, or adjust the start date before saving."
+                                            )
 
                                 _fut_nwks = 1 if _fut_type == "Weekly" else 2
                                 _fut_dst  = _render_shift_day_editor("sf", _pre_pat, _pre_days, _fut_nwks)
