@@ -1738,8 +1738,7 @@ elif st.session_state.page == "Admin Console":
                             _pv_pfx = f'nt_bt_{_pv_bi}'
                             _pv_nm = st.session_state.get(f'{_pv_pfx}_name', '').strip() or f"Test {_pv_bi+1}"
                             if f'{_pv_pfx}_preview_val' not in st.session_state:
-                                st.session_state[f'{_pv_pfx}_preview_val'] = float(
-                                    st.session_state.get(f'{_pv_pfx}_zone_to_0', 5.0)) * 0.6
+                                st.session_state[f'{_pv_pfx}_preview_val'] = float(_pv_bi + 3)
                             _pv_cols[_pv_bi].number_input(_pv_nm, key=f'{_pv_pfx}_preview_val', step=0.1)
 
             with nt_prev:
