@@ -396,8 +396,9 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
             display_unit = ""
             history_data = []
             for _d, _vals in _dg.items():
-                _lparts = [f"{_lbl_map.get(dn, dn)}: {_fmtv(_vals[dn])}" for dn in _dot_order if dn in _vals]
-                history_data.append((_d, " / ".join(_lparts)))
+                _rows = [f"{dn}: {_fmtv(_vals[dn])}" for dn in _dot_order if dn in _vals]
+                for _i, _row_val in enumerate(_rows):
+                    history_data.append((_d if _i == 0 else "", _row_val))
         else:
             dot_vals = [_fmtv(values_dict.get(d["test_name"])) for d in dots_cfg
                         if d["test_name"] in values_dict]
@@ -441,10 +442,7 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 _build_trend_series(group_data, order=_bar_order),
                 trend_config=trend_config_parsed)
 
-        # Build date-grouped labelled history for bar groups
-        def _bar_short(name):
-            return name.replace(f' {group_name}', '').replace(f'{group_name} ', '').strip() or name
-
+        # Build date-grouped history for bar groups — one row per test, date shown only on first
         def _fmtv_bar(v):
             try:
                 fv = float(v)
@@ -461,8 +459,9 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 _bar_dg[d][t[1]] = t[2]
         history_data = []
         for _d, _vals in _bar_dg.items():
-            _hparts = [f"{_bar_short(n)}: {_fmtv_bar(_vals[n])}" for n in _bar_order if n in _vals]
-            history_data.append((_d, " / ".join(_hparts)))
+            _rows = [(n, _fmtv_bar(_vals[n])) for n in _bar_order if n in _vals]
+            for _i, (_n, _v) in enumerate(_rows):
+                history_data.append((_d if _i == 0 else "", f"{_n}: {_v}"))
 
     # Note aggregation — apply overrides if provided, otherwise use raw data notes
     latest_date = group_data[0][0]
