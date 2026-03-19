@@ -1815,8 +1815,9 @@ elif st.session_state.page == "Admin Console":
                             "axis_min": _ax_min, "axis_max": _ax_max, "zones": _zones_prev
                         })
                         for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[0])):
+                            _v = _pv if _i == 0 else round(_pv * _m, 1)
                             _prev_tests.append((
-                                _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
+                                _d, _prev_grp, _v, "units", _prev_grp, _cfg_s,
                                 _prev_note if _i == 0 else "", "Target Range",
                                 "gauge", _i+1, "Complete", _d, "Admin", "", _d, "Admin",
                                 "trend", _prev_trend_cfg
@@ -1826,8 +1827,9 @@ elif st.session_state.page == "Admin Console":
                         _pv = float(st.session_state.get('nt_preview_val', 72.5))
                         _cfg_s = json.dumps({"graph_type": "none"})
                         for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[0])):
+                            _v = _pv if _i == 0 else round(_pv * _m, 1)
                             _prev_tests.append((
-                                _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
+                                _d, _prev_grp, _v, "units", _prev_grp, _cfg_s,
                                 _prev_note if _i == 0 else "", "Target Range",
                                 "none", _i+1, "Complete", _d, "Admin", "", _d, "Admin",
                                 "trend", _prev_trend_cfg
@@ -1858,8 +1860,9 @@ elif st.session_state.page == "Admin Console":
                                         _ax_min + (_ax_max - _ax_min) * (0.4 + _di * 0.2)))
                             _dcfg = _primary_cfg if _di == 0 else _secondary_cfg
                             for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_di % len(_mults)])):
+                                _v = _pv if _i == 0 else round(_pv * _m, 1)
                                 _prev_tests.append((
-                                    _d, _dn, round(_pv * _m, 1), "units", _prev_grp, _dcfg,
+                                    _d, _dn, _v, "units", _prev_grp, _dcfg,
                                     _prev_note if (_i == 0 and _di == 0) else "", "Target Range",
                                     "dot", _i*_nd + _di + 1, "Complete", _d, "Admin", "", _d, "Admin",
                                     "trend", _prev_trend_cfg
@@ -1881,8 +1884,9 @@ elif st.session_state.page == "Admin Console":
                                 "zones": _bt_zones
                             })
                             for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_bi % len(_mults)])):
+                                _v = _pv if _i == 0 else round(_pv * _m, 1)
                                 _prev_tests.append((
-                                    _d, _bt_name, round(_pv * _m, 1),
+                                    _d, _bt_name, _v,
                                     st.session_state.get(f'{_bpfx}_unit', ''), _prev_grp, _bt_cfg,
                                     _prev_note if (_i == 0 and _bi == 0) else "",
                                     st.session_state.get(f'{_bpfx}_target', ''),
