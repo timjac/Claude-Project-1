@@ -816,6 +816,12 @@ elif st.session_state.page == "Admin Console":
     # TAB 1: STAFF MANAGEMENT
     # -----------------------------------------------------
     with tab_staff:
+        # Resolve any pending section switch before rendering anything (prevents flash)
+        if 'admin_pending_section' in st.session_state:
+            _ps = st.session_state.pop('admin_pending_section')
+            st.session_state[f"admin_section_{_ps['staff']}"] = _ps['section']
+            st.rerun()
+
         st.subheader("Staff Management")
         # Query staff data once, shared across all sections
         crm.connect()
@@ -856,14 +862,8 @@ elif st.session_state.page == "Admin Console":
                     _sel_role = _sel_row['Role']
                     _is_self  = (st.session_state.get('username') == _sel)
                     _is_last  = (len(df_staff) <= 1)
-                    _sec_key    = f"admin_section_{_sel}"
-                    _target_key = f"admin_section_target_{_sel}"
-                    _cur_sec    = st.session_state.get(_sec_key)
-
-                    # If a pending target exists, transition to it cleanly (second rerun after clear)
-                    if _target_key in st.session_state:
-                        st.session_state[_sec_key] = st.session_state.pop(_target_key)
-                        st.rerun()
+                    _sec_key = f"admin_section_{_sel}"
+                    _cur_sec = st.session_state.get(_sec_key)
 
                     st.caption(f"**{_sel}** — {_sel_role}")
                     st.divider()
@@ -890,9 +890,9 @@ elif st.session_state.page == "Admin Console":
                                 # Toggle off — simple clear
                                 st.session_state[_sec_key] = None
                             else:
-                                # Switching — clear current first, queue target for next rerun
+                                # Switching — clear now, resolve at top of tab on next rerun (before any render)
                                 st.session_state[_sec_key] = None
-                                st.session_state[_target_key] = _sec_id
+                                st.session_state['admin_pending_section'] = {'staff': _sel, 'section': _sec_id}
                             st.rerun()
 
                     if _cur_sec:
@@ -989,6 +989,9 @@ elif st.session_state.page == "Admin Console":
                     # ---- TIME OFF ----
                     elif _cur_sec == "time_off":
                         st.caption("Record leave, training, sickness, or any other exception to the regular pattern.")
+                        _to_edit_key  = f"admin_timeoff_add_{_sel}"
+                        _show_to_form = st.session_state.get(_to_edit_key, False)
+
                         _sm_ovs = crm.get_availability_overrides(_sel)
                         if _sm_ovs:
                             _sm_ov_tbl = pd.DataFrame(_sm_ovs)[
@@ -1013,26 +1016,36 @@ elif st.session_state.page == "Admin Console":
                         else:
                             st.info("No time off entries recorded for this staff member.")
 
-                        st.markdown("**➕ Add Time Off Entry**")
-                        with st.form(f"sm_override_{_sel}", clear_on_submit=True):
-                            _sov_c1, _sov_c2, _sov_c3 = st.columns(3)
-                            _sov_date  = _sov_c1.date_input("Date")
-                            _sov_type  = _sov_c2.selectbox("Type", _SM_OV_TYPES)
-                            _sov_avail = _sov_c3.checkbox("Available (extra shift)", value=False,
-                                                           help="Check only for extra shifts. Leave unchecked for leave/sickness.")
-                            _sov_c4, _sov_c5, _sov_c6 = st.columns(3)
-                            _sov_full  = _sov_c4.checkbox("Full day", value=True)
-                            _sov_start = _sov_c5.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
-                            _sov_end   = _sov_c6.time_input("End Time",   value=datetime.strptime("17:00", "%H:%M").time())
-                            st.caption("Start/End times only apply when 'Full day' is unchecked.")
-                            _sov_notes = st.text_input("Notes (optional)")
-                            if st.form_submit_button("Add Entry", type="primary"):
-                                crm.add_availability_override(
-                                    _sel, str(_sov_date), _sov_type, int(_sov_avail),
-                                    None if _sov_full else _sov_start.strftime("%H:%M"),
-                                    None if _sov_full else _sov_end.strftime("%H:%M"),
-                                    _sov_notes.strip() or None, st.session_state['username'])
-                                st.success("Entry added."); st.rerun()
+                        if st.button(
+                            "➕ Add Time Off Entry" if not _show_to_form else "✕ Cancel",
+                            key=f"to_add_toggle_{_sel}",
+                            type="primary" if _show_to_form else "secondary"
+                        ):
+                            st.session_state[_to_edit_key] = not _show_to_form
+                            st.rerun()
+
+                        if _show_to_form:
+                            st.divider()
+                            with st.form(f"sm_override_{_sel}", clear_on_submit=True):
+                                _sov_c1, _sov_c2, _sov_c3 = st.columns(3)
+                                _sov_date  = _sov_c1.date_input("Date")
+                                _sov_type  = _sov_c2.selectbox("Type", _SM_OV_TYPES)
+                                _sov_avail = _sov_c3.checkbox("Available (extra shift)", value=False,
+                                                               help="Check only for extra shifts. Leave unchecked for leave/sickness.")
+                                _sov_c4, _sov_c5, _sov_c6 = st.columns(3)
+                                _sov_full  = _sov_c4.checkbox("Full day", value=True)
+                                _sov_start = _sov_c5.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
+                                _sov_end   = _sov_c6.time_input("End Time",   value=datetime.strptime("17:00", "%H:%M").time())
+                                st.caption("Start/End times only apply when 'Full day' is unchecked.")
+                                _sov_notes = st.text_input("Notes (optional)")
+                                if st.form_submit_button("Add Entry", type="primary"):
+                                    crm.add_availability_override(
+                                        _sel, str(_sov_date), _sov_type, int(_sov_avail),
+                                        None if _sov_full else _sov_start.strftime("%H:%M"),
+                                        None if _sov_full else _sov_end.strftime("%H:%M"),
+                                        _sov_notes.strip() or None, st.session_state['username'])
+                                    st.session_state[_to_edit_key] = False
+                                    st.success("Entry added."); st.rerun()
 
                     # ---- CHANGE PASSWORD ----
                     elif _cur_sec == "password":
