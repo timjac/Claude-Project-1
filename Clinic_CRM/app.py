@@ -909,17 +909,24 @@ elif st.session_state.page == "Admin Console":
 
                         def _render_pattern_table(pat, days):
                             _dmap = {(d['week_number'], d['day_of_week']): d for d in days}
-                            _wks  = 1 if pat['pattern_type'] == 'weekly' else 2
-                            _rows = []
-                            for _wk in range(1, _wks + 1):
+                            if pat['pattern_type'] == 'weekly':
+                                _rows = []
                                 for _d in range(7):
-                                    _sd = _dmap.get((_wk, _d))
-                                    _rows.append({"Week": _wk, "Day": _SM_DAY_NAMES[_d],
+                                    _sd = _dmap.get((1, _d))
+                                    _rows.append({"Day": _SM_DAY_NAMES[_d],
                                                   "Hours": f"{_sd['start_time']} – {_sd['end_time']}" if _sd else "Day off"})
-                            _df = pd.DataFrame(_rows)
-                            if _wks == 1:
-                                _df = _df.drop(columns=["Week"])
-                            st.dataframe(_df, hide_index=True, use_container_width=True)
+                                st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
+                            else:
+                                _rows = []
+                                for _d in range(7):
+                                    _w1 = _dmap.get((1, _d))
+                                    _w2 = _dmap.get((2, _d))
+                                    _rows.append({
+                                        "Day":    _SM_DAY_NAMES[_d],
+                                        "Week 1": f"{_w1['start_time']} – {_w1['end_time']}" if _w1 else "Day off",
+                                        "Week 2": f"{_w2['start_time']} – {_w2['end_time']}" if _w2 else "Day off",
+                                    })
+                                st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
 
                         def _render_shift_day_editor(prefix, existing_pat, existing_days, nwks):
                             _exmap = {}
