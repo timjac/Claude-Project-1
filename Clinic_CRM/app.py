@@ -62,6 +62,14 @@ if "edit_mode" not in st.session_state:
 if "shutdown_mode" not in st.session_state:
     st.session_state.shutdown_mode = False
 
+# --- GLOBAL CSS ---
+st.markdown("""
+    <style>
+    /* Centre button label text in all full-width buttons */
+    div.stButton > button { justify-content: center; }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- SHUTDOWN SCREEN ---
 if st.session_state.shutdown_mode:
     st.markdown("<script>window.scrollTo(0, 0);</script>", unsafe_allow_html=True)
@@ -1589,7 +1597,12 @@ elif st.session_state.page == "Admin Console":
                     _zc[0].number_input("From", key=f'{pfx}_zone_from_0',
                                         label_visibility="collapsed", step=0.1)
                 else:
-                    _zc[0].markdown(f"**:red[{from_v:g} ⚠]**" if bad else f"*{from_v:g}*")
+                    if bad:
+                        _zc[0].markdown(f"**:red[{from_v:g} ⚠]**")
+                    else:
+                        _zc[0].number_input("From", value=from_v, disabled=True,
+                                            label_visibility="collapsed", step=0.1,
+                                            key=f'{pfx}_zone_from_ro_{i}')
                 # To: number input
                 if f'{pfx}_zone_to_{i}' not in st.session_state:
                     st.session_state[f'{pfx}_zone_to_{i}'] = from_v + 10.0
