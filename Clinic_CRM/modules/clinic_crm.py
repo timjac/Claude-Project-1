@@ -165,6 +165,10 @@ class ClinicCRM:
             self.cursor.execute("ALTER TABLE test_groups ADD COLUMN trend_config TEXT")
         except:
             pass  # column already exists
+        try:
+            self.cursor.execute("ALTER TABLE test_groups ADD COLUMN result_display TEXT DEFAULT 'concatenated'")
+        except:
+            pass  # column already exists
 
         # --- Table: Test Definitions ---
         self.cursor.execute("""

@@ -326,6 +326,7 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
         trend_config_parsed = {}
 
     img_gauge, img_trend = None, None
+    history_data = None
     try:
         _dv = float(val)
         display_val = str(int(_dv)) if _dv.is_integer() else f"{_dv:.1f}"
@@ -350,6 +351,7 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 trend_config=trend_config_parsed)
 
     elif graph_type == 'dot':
+        result_display = latest[18] if len(latest) > 18 else 'concatenated'
         values_dict = {}
         for t in group_data:
             if t[2] is not None and t[1] not in values_dict:
@@ -368,10 +370,43 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 pass
         img_gauge = render_dot(values_dict, primary_config, test_name, unit)
         dots_cfg = primary_config.get("dots", [])
-        dot_vals = [str(values_dict.get(d["test_name"], "?")) for d in dots_cfg
-                    if d["test_name"] in values_dict]
-        display_val = "/".join(dot_vals) if dot_vals else str(val)
         _dot_order = [d["test_name"] for d in dots_cfg if d.get("test_name")]
+
+        def _fmtv(v):
+            try:
+                fv = float(v)
+                return str(int(fv)) if fv == int(fv) else f"{fv:.1f}"
+            except (ValueError, TypeError):
+                return str(v)
+
+        # Group history by date (newest first), pairing all tests per visit
+        _dg = {}
+        for t in sorted(group_data, key=lambda x: x[0], reverse=True):
+            if t[0] not in _dg:
+                _dg[t[0]] = {}
+            _dg[t[0]][t[1]] = t[2]
+
+        if result_display == 'separate':
+            _lbl_map = {d["test_name"]: (d.get("label") or d["test_name"]) for d in dots_cfg}
+            dot_parts = [
+                f"{_lbl_map.get(dn, dn)}: {_fmtv(values_dict[dn])} {unit}".strip()
+                for dn in _dot_order if dn in values_dict
+            ]
+            display_val = "\n".join(dot_parts) if dot_parts else str(val)
+            display_unit = ""
+            history_data = []
+            for _d, _vals in _dg.items():
+                _lparts = [f"{_lbl_map.get(dn, dn)}: {_fmtv(_vals[dn])}" for dn in _dot_order if dn in _vals]
+                history_data.append((_d, " / ".join(_lparts)))
+        else:
+            dot_vals = [_fmtv(values_dict.get(d["test_name"])) for d in dots_cfg
+                        if d["test_name"] in values_dict]
+            display_val = "/".join(dot_vals) if dot_vals else str(val)
+            history_data = []
+            for _d, _vals in _dg.items():
+                _cparts = [_fmtv(_vals[dn]) for dn in _dot_order if dn in _vals]
+                history_data.append((_d, "/".join(_cparts) if _cparts else ""))
+
         if len(group_data) > 1:
             img_trend = render_trend_chart(
                 _build_trend_series(group_data, order=_dot_order),
@@ -423,8 +458,9 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 final_notes_list.append(current_note)
     final_note = "\n".join(final_notes_list)
 
-    # Flat history (date, value) — newest first
-    history_data = [(t[0], str(t[2])) for t in group_data]
+    # Flat history (date, value) — newest first; dot type sets its own above
+    if history_data is None:
+        history_data = [(t[0], str(t[2])) for t in group_data]
 
     return {
         "latest": latest,

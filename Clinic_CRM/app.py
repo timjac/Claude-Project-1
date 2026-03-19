@@ -2040,6 +2040,14 @@ elif st.session_state.page == "Admin Console":
                     st.session_state['nt_n_dots'] = nd + 1
                     st.rerun()
 
+                if nd > 1:
+                    st.markdown("**Result Display**")
+                    st.radio(
+                        "How to show paired values in the report",
+                        ["Concatenated (e.g. 155/95)", "Separate rows"],
+                        key="nt_dot_result_display", horizontal=True,
+                    )
+
                 st.markdown("**Scale & Zones** (Zone 1 sets the axis start)")
                 nt_n_zones = st.session_state.get('nt_n_zones', 2)
                 _zrender('nt', nt_n_zones)
@@ -2391,12 +2399,13 @@ elif st.session_state.page == "Admin Console":
                                 "show_legend":  bool(st.session_state.get("nt_trend_legend", True)) if _sv_n > 1 else False,
                                 "zones":        _sv_zones,
                             })
+                            _result_display = ('separate' if (_gt == 'dot' and st.session_state.get('nt_dot_result_display') == 'Separate rows') else 'concatenated')
                             crm.connect()
                             try:
                                 crm.cursor.execute("""
-                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description, trend_config)
-                                    VALUES (?, ?, ?, ?, ?)
-                                """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None, _trend_cfg))
+                                    INSERT INTO test_groups (group_name, chart_type, trend_chart_type, description, trend_config, result_display)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """, (nt_panel_name.strip(), _gt, _trend, nt_desc.strip() or None, _trend_cfg, _result_display))
                                 new_gid = crm.cursor.lastrowid
                                 for (t_n, t_u, t_t, t_cfg) in _defs:
                                     crm.cursor.execute("""
@@ -2585,10 +2594,12 @@ elif st.session_state.page == "Admin Console":
                         st.session_state['et_result_count']  = 0
                         st.session_state['et_patient_count'] = 0
                     crm.cursor.execute(
-                        "SELECT trend_config FROM test_groups WHERE group_name = ?", (edit_group_name,)
+                        "SELECT trend_config, result_display FROM test_groups WHERE group_name = ?", (edit_group_name,)
                     )
                     _et_tg_row = crm.cursor.fetchone()
                     crm.close()
+                    _et_saved_rd = (_et_tg_row[1] if _et_tg_row and _et_tg_row[1] else 'concatenated')
+                    st.session_state['et_dot_result_display'] = "Separate rows" if _et_saved_rd == 'separate' else "Concatenated (e.g. 155/95)"
 
                     # Initialise trend config session state from saved values
                     try:
@@ -2792,6 +2803,13 @@ elif st.session_state.page == "Admin Console":
                                     st.session_state[f'et_preview_val_{_di}'] = _etd_min + (_etd_max - _etd_min) * (0.4 + _di * 0.2)
                                 _dlbl = st.session_state.get(f'et_dot_name_{_di}') or f"Dot {_di+1}"
                                 _etdpv_cols[_di].number_input(_dlbl, key=f'et_preview_val_{_di}', step=0.1)
+                            if _et_nd > 1:
+                                st.markdown("**Result Display**")
+                                st.radio(
+                                    "How to show paired values in the report",
+                                    ["Concatenated (e.g. 155/95)", "Separate rows"],
+                                    key="et_dot_result_display", horizontal=True,
+                                )
 
                         elif _et_gt == "none":
                             _etnpv_col, _ = st.columns(2)
@@ -3088,9 +3106,10 @@ elif st.session_state.page == "Admin Console":
                                 "show_legend":  bool(st.session_state.get("et_trend_legend", False)),
                                 "zones":        _et_sv_zones,
                             })
+                            _et_result_display = ('separate' if (_et_gt == 'dot' and st.session_state.get('et_dot_result_display') == 'Separate rows') else 'concatenated')
                             crm.cursor.execute(
-                                "UPDATE test_groups SET trend_config = ? WHERE group_name = ?",
-                                (_et_trend_cfg_save, edit_group_name)
+                                "UPDATE test_groups SET trend_config = ?, result_display = ? WHERE group_name = ?",
+                                (_et_trend_cfg_save, _et_result_display, edit_group_name)
                             )
 
                             crm.conn.commit()
