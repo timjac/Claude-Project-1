@@ -441,6 +441,29 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 _build_trend_series(group_data, order=_bar_order),
                 trend_config=trend_config_parsed)
 
+        # Build date-grouped labelled history for bar groups
+        def _bar_short(name):
+            return name.replace(f' {group_name}', '').replace(f'{group_name} ', '').strip() or name
+
+        def _fmtv_bar(v):
+            try:
+                fv = float(v)
+                return str(int(fv)) if fv == int(fv) else f"{fv:.1f}"
+            except (ValueError, TypeError):
+                return str(v)
+
+        _bar_dg = {}
+        for t in sorted(group_data, key=lambda x: x[0], reverse=True):
+            d = t[0]
+            if d not in _bar_dg:
+                _bar_dg[d] = {}
+            if t[1] not in _bar_dg[d]:
+                _bar_dg[d][t[1]] = t[2]
+        history_data = []
+        for _d, _vals in _bar_dg.items():
+            _hparts = [f"{_bar_short(n)}: {_fmtv_bar(_vals[n])}" for n in _bar_order if n in _vals]
+            history_data.append((_d, " / ".join(_hparts)))
+
     # Note aggregation — apply overrides if provided, otherwise use raw data notes
     latest_date = group_data[0][0]
     latest_records = sorted([t for t in group_data if t[0] == latest_date], key=lambda x: x[1])
