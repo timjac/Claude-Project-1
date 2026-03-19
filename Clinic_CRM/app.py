@@ -2179,6 +2179,7 @@ elif st.session_state.page == "Admin Console":
                     else:
                         _tc_lbl = "Line colour"
                     with _tc_cols[_tc_j]:
+                        st.caption(_tc_lbl)
                         _tc_hex = _palette_select(
                             _tc_lbl, f"nt_trend_colour_{_tc_i}",
                             st.session_state.get(f"nt_trend_colour_{_tc_i}", "#003366"), PALETTE
@@ -2827,6 +2828,7 @@ elif st.session_state.page == "Admin Console":
                             else:
                                 _etc_lbl = "Line colour"
                             with _etc_cols[_etc_j]:
+                                st.caption(_etc_lbl)
                                 _etc_hex = _palette_select(
                                     _etc_lbl, f"et_trend_colour_{_etc_i}",
                                     st.session_state.get(f"et_trend_colour_{_etc_i}", "#003366"), PALETTE
