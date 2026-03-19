@@ -2097,10 +2097,12 @@ elif st.session_state.page == "Admin Console":
                     if f'{_bpfx}_alertcol' not in st.session_state:
                         st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
                     with _bcolor1:
+                        st.caption("Bar colour")
                         _bb_hex = _palette_select("Bar colour", f'{_bpfx}_barcol',
                                                   st.session_state.get(f'{_bpfx}_barcol', '#003366'), PALETTE)
                         st.session_state[f'{_bpfx}_barcol'] = _bb_hex
                     with _bcolor2:
+                        st.caption("Alert bar colour")
                         _ba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
                                                   st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
                         st.session_state[f'{_bpfx}_alertcol'] = _ba_hex
@@ -2642,10 +2644,12 @@ elif st.session_state.page == "Admin Console":
                             if f'{_bpfx}_alertcol' not in st.session_state:
                                 st.session_state[f'{_bpfx}_alertcol'] = '#DC3545'
                             with _bcolor1:
+                                st.caption("Bar colour")
                                 _ebb_hex = _palette_select("Bar colour", f'{_bpfx}_barcol',
                                                            st.session_state.get(f'{_bpfx}_barcol', '#003366'), PALETTE)
                                 st.session_state[f'{_bpfx}_barcol'] = _ebb_hex
                             with _bcolor2:
+                                st.caption("Alert bar colour")
                                 _eba_hex = _palette_select("Alert bar colour", f'{_bpfx}_alertcol',
                                                            st.session_state.get(f'{_bpfx}_alertcol', '#DC3545'), PALETTE)
                                 st.session_state[f'{_bpfx}_alertcol'] = _eba_hex
