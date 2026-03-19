@@ -702,23 +702,17 @@ elif st.session_state.page == "Dashboard":
                                 creator_name=st.session_state.get('username', 'System'), theme_config=live_theme
                             )
 
-                            # --- CALLBACK FUNCTION FOR DOWNLOAD ---
-                            def handle_download():
-                                new_id = log_report_generation(
+                            _report_filename = f"Report_{pid}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                            if st.button("🚀 Download PDF & Log to Patient Record", type="primary"):
+                                _downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+                                _save_path = os.path.join(_downloads_dir, _report_filename)
+                                with open(_save_path, "wb") as _f:
+                                    _f.write(pdf_bytes)
+                                log_report_generation(
                                     pid, crm, start_d, end_d, final_order, overrides, filtered_data,
                                     practitioner_statement.strip(), next_steps.strip(), st.session_state['username']
                                 )
-                                # Streamlit callbacks can't easily print st.success directly here without weird state issues,
-                                # but the database logging is guaranteed.
-                            
-                            st.download_button(
-                                label="🚀 Download PDF & Log to Patient Record", 
-                                data=pdf_bytes, 
-                                file_name=f"Report_{pid}_{datetime.now().strftime('%Y%m%d')}.pdf", 
-                                mime="application/pdf",
-                                on_click=handle_download,
-                                type="primary"
-                            )
+                                st.success(f"Saved to Downloads: {_report_filename}")
                         else: st.warning("Please include at least one test.")
                     else: st.warning("No tests found in this date range.")
                 else: st.info("No completed tests available for reporting.")
