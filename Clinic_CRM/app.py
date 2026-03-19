@@ -816,12 +816,6 @@ elif st.session_state.page == "Admin Console":
     # TAB 1: STAFF MANAGEMENT
     # -----------------------------------------------------
     with tab_staff:
-        # Resolve any pending section switch before rendering anything (prevents flash)
-        if 'admin_pending_section' in st.session_state:
-            _ps = st.session_state.pop('admin_pending_section')
-            st.session_state[f"admin_section_{_ps['staff']}"] = _ps['section']
-            st.rerun()
-
         st.subheader("Staff Management")
         # Query staff data once, shared across all sections
         crm.connect()
@@ -886,17 +880,22 @@ elif st.session_state.page == "Admin Console":
                             type="primary" if _active else "secondary",
                             use_container_width=True
                         ):
-                            if _active:
-                                # Toggle off — simple clear
-                                st.session_state[_sec_key] = None
-                            else:
-                                # Switching — clear now, resolve at top of tab on next rerun (before any render)
-                                st.session_state[_sec_key] = None
-                                st.session_state['admin_pending_section'] = {'staff': _sel, 'section': _sec_id}
+                            st.session_state[_sec_key] = None if _active else _sec_id
                             st.rerun()
 
                     if _cur_sec:
                         st.divider()
+                        st.markdown("""<style>
+                        @keyframes _sec_fadein {
+                            from { opacity: 0; transform: translateY(-6px); }
+                            to   { opacity: 1; transform: translateY(0); }
+                        }
+                        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMarkdownContainer"]),
+                        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stDataFrame"]),
+                        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stForm"]) {
+                            animation: _sec_fadein 0.18s ease-out;
+                        }
+                        </style>""", unsafe_allow_html=True)
 
                     # ---- SHIFT PATTERN ----
                     if _cur_sec == "shift":
