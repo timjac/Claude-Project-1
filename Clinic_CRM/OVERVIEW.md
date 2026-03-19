@@ -107,15 +107,20 @@ The `chart_config` JSON for each test definition stores the axis range, zone bou
 
 All chart types expand their axis dynamically if a value falls outside the configured range (elastic bounds), so outliers are always visible rather than clipped.
 
-**Trend charts** are generated automatically when a patient has more than one result for a given test. The trend style is set at the group level via `test_groups.trend_config` (JSON) and `test_groups.trend_chart_type`:
+**Trend charts** are generated automatically when a patient has more than one result for a given test. All chart types use a single unified `render_trend_chart(series, trend_config)` function in `charts.py`. The `trend_chart_type` column in `test_groups` is always set to `"trend"` for all new groups; the old values (`line`, `bp_trend`, `multi_trend`) are legacy.
 
-| `trend_chart_type` | Used for | Function |
+`trend_config` (JSON, stored in `test_groups.trend_config`) supports the following keys:
+
+| Key | Type | Description |
 |---|---|---|
-| `line` | Single-value tests (gauge, none) | `create_trend_chart` |
-| `bp_trend` | Two-dot groups | `create_bp_trend_chart` — splits data by first/second dot name in config |
-| `multi_trend` | Bar groups | `create_multi_trend_chart` — one line per test name |
+| `line_colours` | list of hex strings | One colour per series; falls back to `line_colour` (singular) for older records |
+| `line_style` | `"solid"` / `"dashed"` | Line dash style |
+| `show_markers` | bool | Whether to mark individual data points |
+| `fill_area` | bool | Fill under the line (1 series) or between two lines (2 series) |
+| `show_legend` | bool | Show a legend when there is more than one series |
+| `zones` | list of zone objects | Optional zone bands (`{from, to, colour, label}`) drawn on the trend axis |
 
-`trend_config` stores `line_colour`, `line_style` (`solid`/`dashed`), and `show_markers` per group.
+For `gauge` and `dot` groups the admin can opt in to showing snapshot zones on the trend chart. For `bar` groups (where each test has its own scale) the admin instead chooses a zone reference: None, any named test's zones, or a custom zone set.
 
 ### Appointments
 Appointments are scheduled per patient with a date, time, provider, and reason. Past appointments in `Scheduled` status are auto-resolved when a patient record is opened: if an encounter exists on that date, the appointment becomes `Completed`; otherwise it becomes `No Show`.
@@ -179,11 +184,18 @@ The appointment booking form queries the rota automatically: it shows scheduled 
 - **Test Groups** — view existing group-level entities (`test_groups`): group name, chart style, trend style, description. Includes an **Edit** flow to update zone config, trend tuning, and metadata for any existing group.
 
 - **Add New Test Group** — a multi-step zone-based editor:
-  1. Select chart type (`gauge`, `dot`, `bar`, `none`) with a caption explaining how many test definitions each type creates
-  2. Configure type-specific options (gauge style, axis range/zones, dot names/labels/colours, bar names/colours/zones)
-  3. Configure trend chart appearance: line colour (palette), line style (solid/dashed), show markers toggle
-  4. Set test metadata (group name, unit, target, description) and save
+  1. Select chart type (`gauge`, `dot`, `bar`, `none`) with a caption explaining how many test definitions each type creates. Live preview value inputs also live here.
+  2. Configure type-specific options (gauge style, axis range/zones, dot names/labels/colours, bar names/colours/zones).
+  3. Configure trend chart appearance: per-series line colours (palette), line style (solid/dashed), mark data points, fill area, show legend, and optional zone bands on the trend axis.
+  4. Set test metadata (group name, unit, target, description) and save.
   5. **Live preview** (right column) renders a full PDF banner — identical to the printed report — using dummy data: snapshot chart, current value, history table, and trend chart. Reflects the current designer theme.
+
+- **Edit Existing Test Group** — mirrors the Add New flow for groups that already have patient data. Loads all saved config (snapshot chart config, trend config) from the database and pre-populates the editor. Constraints:
+  - Test names can be renamed (cascades atomically across `test_definitions`, `test_results`, `report_contents`, and JSON dot configs); an explicit acknowledgement checkbox is required before saving.
+  - Units and targets can be changed with acknowledgement.
+  - Zone colours and boundaries (aesthetic only) can be changed freely.
+  - Trend chart config (all aesthetic) can be changed freely — same unified Trend Chart section as Add New.
+  - Adding extra tests to an existing group is not permitted — create a new group instead.
 
 ---
 

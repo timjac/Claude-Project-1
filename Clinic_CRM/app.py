@@ -2450,7 +2450,7 @@ elif st.session_state.page == "Admin Console":
 
         # Edit an existing test group
         if all_test_groups:
-            with st.expander("✏️ Edit Existing Test", expanded=False):
+            with st.expander("✏️ Edit Existing Test Group", expanded=False):
                 _et_group_names = [row['group_name'] for row in all_test_groups]
                 edit_group_name = st.selectbox("Select Group to Edit", options=_et_group_names, key="edit_group_select")
                 _et_group_row  = next((row for row in all_test_groups if row['group_name'] == edit_group_name), None)
@@ -2508,10 +2508,10 @@ elif st.session_state.page == "Admin Console":
                                 for _di in range(st.session_state.get('et_n_dots', 0)):
                                     st.session_state[f'et_dot_orig_name_{_di}'] = st.session_state.get(f'et_dot_name_{_di}', '')
 
-                    # Cache result/patient counts for this group
+                    # Cache result/patient counts and trend_config for this group
                     _et_all_names = list(_et_group_tests['Test Name']) if not _et_group_tests.empty else []
+                    crm.connect()
                     if _et_all_names:
-                        crm.connect()
                         _et_ph = ','.join(['?'] * len(_et_all_names))
                         crm.cursor.execute(
                             f"SELECT COUNT(*), COUNT(DISTINCT e.patient_id) "
@@ -2520,12 +2520,32 @@ elif st.session_state.page == "Admin Console":
                             _et_all_names
                         )
                         _et_cnt = crm.cursor.fetchone()
-                        crm.close()
                         st.session_state['et_result_count']  = _et_cnt[0] if _et_cnt else 0
                         st.session_state['et_patient_count'] = _et_cnt[1] if _et_cnt else 0
                     else:
                         st.session_state['et_result_count']  = 0
                         st.session_state['et_patient_count'] = 0
+                    crm.cursor.execute(
+                        "SELECT trend_config FROM test_groups WHERE group_name = ?", (edit_group_name,)
+                    )
+                    _et_tg_row = crm.cursor.fetchone()
+                    crm.close()
+
+                    # Initialise trend config session state from saved values
+                    try:
+                        _et_tc_saved = json.loads(_et_tg_row[0]) if _et_tg_row and _et_tg_row[0] else {}
+                    except (json.JSONDecodeError, TypeError):
+                        _et_tc_saved = {}
+                    _etc_init_colours = (_et_tc_saved.get("line_colours")
+                                         or ([_et_tc_saved["line_colour"]] if _et_tc_saved.get("line_colour") else ["#003366"]))
+                    for _i, _c in enumerate(_etc_init_colours[:8]):
+                        st.session_state[f"et_trend_colour_{_i}"] = _c
+                    st.session_state["et_trend_style"]      = "Dashed" if _et_tc_saved.get("line_style") == "dashed" else "Solid"
+                    st.session_state["et_show_markers"]     = bool(_et_tc_saved.get("show_markers", False))
+                    st.session_state["et_trend_fill"]       = bool(_et_tc_saved.get("fill_area", True))
+                    st.session_state["et_trend_legend"]     = bool(_et_tc_saved.get("show_legend", False))
+                    st.session_state["et_trend_show_zones"] = bool(_et_tc_saved.get("zones"))
+                    st.session_state["et_trend_zones_source"] = "None"
 
                 _et_gt = st.session_state.get('et_graph_type', 'none')
                 et_left, et_right = st.columns([1.1, 1], gap="large")
@@ -2576,7 +2596,7 @@ elif st.session_state.page == "Admin Console":
                             _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
                             st.markdown("**Zones** (Zone 1 sets the axis start)")
                             _zrender(_bpfx, _bnz, rm_key_sfx=f"_etbt{_bi}")
-                            if st.button(f"+ Add Zone ({_bt_name})", key=f'{_bpfx}_et_add_zone'):
+                            if st.button(f"+ Add Zone ({_bt_name})", key=f'{_bpfx}_et_add_zone', use_container_width=True):
                                 _n = st.session_state.get(f'{_bpfx}_n_zones', 2)
                                 _prev = float(st.session_state.get(f'{_bpfx}_zone_to_{_n-1}', 0.0))
                                 st.session_state[f'{_bpfx}_zone_to_{_n}']     = _prev + 10.0
@@ -2629,7 +2649,7 @@ elif st.session_state.page == "Admin Console":
                             _et_nz = st.session_state.get('et_n_zones', 2)
                             st.markdown("**Zones** (Zone 1 sets the axis start)")
                             _zrender('et', _et_nz)
-                            if st.button("+ Add Zone", key="et_add_zone"):
+                            if st.button("+ Add Zone", key="et_add_zone", use_container_width=True):
                                 _n = st.session_state.get('et_n_zones', 2)
                                 _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
                                 st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
@@ -2692,7 +2712,7 @@ elif st.session_state.page == "Admin Console":
                             st.markdown("**Zones** (Zone 1 sets the axis start)")
                             _et_nz = st.session_state.get('et_n_zones', 2)
                             _zrender('et', _et_nz)
-                            if st.button("+ Add Zone", key="et_add_zone_dot"):
+                            if st.button("+ Add Zone", key="et_add_zone_dot", use_container_width=True):
                                 _n = st.session_state.get('et_n_zones', 2)
                                 _prev = float(st.session_state.get(f'et_zone_to_{_n-1}', 0.0))
                                 st.session_state[f'et_zone_to_{_n}']     = _prev + 10.0
@@ -2719,6 +2739,106 @@ elif st.session_state.page == "Admin Console":
                             _etnpv_col.number_input("Preview value", key='et_preview_val', step=0.1,
                                                     help="Used in the live chart preview only")
                         # (gauge preview val added above in gauge block)
+
+                    # ---- TREND CHART CONFIG ----
+                    st.divider()
+                    st.markdown("##### Trend Chart")
+                    st.caption("Shown automatically when the patient has more than one result on record.")
+
+                    _etc_n_series = (1 if _et_gt in ("gauge", "none")
+                                     else st.session_state.get("et_n_dots", 2) if _et_gt == "dot"
+                                     else st.session_state.get("et_bar_n", 2))
+
+                    _etc_row_size = 4
+                    for _etc_row_start in range(0, _etc_n_series, _etc_row_size):
+                        _etc_row_end = min(_etc_row_start + _etc_row_size, _etc_n_series)
+                        _etc_cols = st.columns(_etc_row_end - _etc_row_start)
+                        for _etc_j, _etc_i in enumerate(range(_etc_row_start, _etc_row_end)):
+                            if _et_gt == "dot":
+                                _etc_lbl = st.session_state.get(f"et_dot_name_{_etc_i}", "").strip() or f"Series {_etc_i+1}"
+                            elif _et_gt == "bar":
+                                _etc_lbl = st.session_state.get(f"et_bt_{_etc_i}_name", "").strip() or f"Test {_etc_i+1}"
+                            else:
+                                _etc_lbl = "Line colour"
+                            with _etc_cols[_etc_j]:
+                                _etc_hex = _palette_select(
+                                    _etc_lbl, f"et_trend_colour_{_etc_i}",
+                                    st.session_state.get(f"et_trend_colour_{_etc_i}", "#003366"), PALETTE
+                                )
+                                st.session_state[f"et_trend_colour_{_etc_i}"] = _etc_hex
+
+                    _etc_c1, _etc_c2, _etc_c3, _etc_c4 = st.columns(4)
+                    _et_trend_style_v = _etc_c1.radio(
+                        "Line style", ["Solid", "Dashed"],
+                        index=0 if st.session_state.get("et_trend_style", "Solid") == "Solid" else 1,
+                        key="et_trend_style_radio", horizontal=True
+                    )
+                    st.session_state["et_trend_style"] = _et_trend_style_v
+                    _etc_c2.checkbox(
+                        "Mark data points", key="et_show_markers",
+                        value=st.session_state.get("et_show_markers", False)
+                    )
+                    _etc_c3.checkbox(
+                        "Fill area", key="et_trend_fill",
+                        value=st.session_state.get("et_trend_fill", _etc_n_series <= 2)
+                    )
+                    if _etc_n_series > 1:
+                        _etc_c4.checkbox(
+                            "Show legend", key="et_trend_legend",
+                            value=st.session_state.get("et_trend_legend", True)
+                        )
+
+                    if _et_gt in ("gauge", "dot"):
+                        st.checkbox(
+                            "Show snapshot zones on trend chart",
+                            key="et_trend_show_zones",
+                            value=st.session_state.get("et_trend_show_zones", False),
+                            help="Overlay the zone colour bands from the snapshot chart onto the trend chart axis."
+                        )
+                    elif _et_gt == "bar":
+                        st.info(
+                            "Each test in this group has its own zone scale, so zones cannot be applied "
+                            "automatically to the shared trend axis. Choose a reference below.",
+                            icon="ℹ️"
+                        )
+                        _et_bar_test_names = [
+                            st.session_state.get(f"et_bt_{_bi}_name", "").strip() or f"Test {_bi+1}"
+                            for _bi in range(st.session_state.get("et_bar_n", 2))
+                        ]
+                        _et_zone_options = ["None"] + _et_bar_test_names + ["Custom"]
+                        _et_cur_src = st.session_state.get("et_trend_zones_source", "None")
+                        _et_zone_src_idx = _et_zone_options.index(_et_cur_src) if _et_cur_src in _et_zone_options else 0
+                        _et_zones_source = st.selectbox(
+                            "Zone bands — use zones from:",
+                            _et_zone_options,
+                            index=_et_zone_src_idx,
+                            key="et_trend_zones_source_sel"
+                        )
+                        st.session_state["et_trend_zones_source"] = _et_zones_source
+                        if _et_zones_source == "Custom":
+                            if "et_tc_n_zones" not in st.session_state:
+                                st.session_state["et_tc_n_zones"]        = 2
+                                st.session_state["et_tc_zone_from_0"]    = 0.0
+                                st.session_state["et_tc_zone_to_0"]      = 5.0
+                                st.session_state["et_tc_zone_color_0"]   = "#D4EDDA"
+                                st.session_state["et_tc_zone_transp_0"]  = False
+                                st.session_state["et_tc_zone_label_0"]   = ""
+                                st.session_state["et_tc_zone_to_1"]      = 15.0
+                                st.session_state["et_tc_zone_color_1"]   = "#FFCCCB"
+                                st.session_state["et_tc_zone_transp_1"]  = False
+                                st.session_state["et_tc_zone_label_1"]   = ""
+                            _etc_nz = st.session_state.get("et_tc_n_zones", 2)
+                            st.markdown("**Custom zones** (Zone 1 sets the axis start)")
+                            _zrender("et_tc", _etc_nz, rm_key_sfx="_etc")
+                            if st.button("+ Add Zone", key="et_tc_add_zone", use_container_width=True):
+                                _n = st.session_state.get("et_tc_n_zones", 2)
+                                _prev_to = float(st.session_state.get(f"et_tc_zone_to_{_n-1}", 0.0))
+                                st.session_state[f"et_tc_zone_to_{_n}"]     = _prev_to + 10.0
+                                st.session_state[f"et_tc_zone_color_{_n}"]  = "#D4EDDA"
+                                st.session_state[f"et_tc_zone_transp_{_n}"] = False
+                                st.session_state[f"et_tc_zone_label_{_n}"]  = ""
+                                st.session_state["et_tc_n_zones"] = _n + 1
+                                st.rerun()
 
                     st.divider()
 
@@ -2879,6 +2999,37 @@ elif st.session_state.page == "Admin Console":
                                             """, (st.session_state.get('et_unit', '').strip(),
                                                   st.session_state.get('et_target', '').strip(),
                                                   json.dumps(_et_secondary_cfg), _resolved(_row['Test Name'])))
+
+                            # Save trend config
+                            _et_sv_colours = [st.session_state.get(f"et_trend_colour_{_i}", "#003366")
+                                              for _i in range(_etc_n_series)]
+                            _et_sv_zones = []
+                            if _et_gt in ("gauge", "dot"):
+                                if st.session_state.get("et_trend_show_zones", False):
+                                    _et_sv_zones = _zbuild("et", st.session_state.get("et_n_zones", 2))
+                            elif _et_gt == "bar":
+                                _et_sv_src = st.session_state.get("et_trend_zones_source", "None")
+                                if _et_sv_src == "Custom":
+                                    _et_sv_zones = _zbuild("et_tc", st.session_state.get("et_tc_n_zones", 2))
+                                elif _et_sv_src != "None":
+                                    for _bi in range(st.session_state.get("et_bar_n", 2)):
+                                        _bpfx = f"et_bt_{_bi}"
+                                        _bn = st.session_state.get(f"{_bpfx}_name", "").strip() or f"Test {_bi+1}"
+                                        if _bn == _et_sv_src:
+                                            _et_sv_zones = _zbuild(_bpfx, st.session_state.get(f"{_bpfx}_n_zones", 2))
+                                            break
+                            _et_trend_cfg_save = json.dumps({
+                                "line_colours": _et_sv_colours,
+                                "line_style":   "dashed" if st.session_state.get("et_trend_style", "Solid") == "Dashed" else "solid",
+                                "show_markers": bool(st.session_state.get("et_show_markers", False)),
+                                "fill_area":    bool(st.session_state.get("et_trend_fill", _etc_n_series <= 2)),
+                                "show_legend":  bool(st.session_state.get("et_trend_legend", False)),
+                                "zones":        _et_sv_zones,
+                            })
+                            crm.cursor.execute(
+                                "UPDATE test_groups SET trend_config = ? WHERE group_name = ?",
+                                (_et_trend_cfg_save, edit_group_name)
+                            )
 
                             crm.conn.commit()
                             # Force reinit on next open so originals reflect saved values
