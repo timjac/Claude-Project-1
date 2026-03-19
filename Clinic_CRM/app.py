@@ -1717,15 +1717,17 @@ elif st.session_state.page == "Admin Console":
                             _pv_lbl = st.session_state.get(f'nt_dot_name_{_pv_di}') or f"Dot {_pv_di+1}"
                             _pv_cols[_pv_di].number_input(_pv_lbl, key=f'nt_preview_val_{_pv_di}', step=0.1)
                     elif nt_graph == "bar":
-                        _pv_bn = st.session_state.get('nt_bar_n', 2)
-                        _pv_cols = st.columns(min(_pv_bn, 4))
+                        # Read from the widget key so the count is always current (not one render behind)
+                        _pv_bn = min(int(st.session_state.get('nt_bar_n_input', st.session_state.get('nt_bar_n', 2))), 4)
+                        st.caption(f"Up to 4 preview values are shown — configure more tests in Step 2.")
+                        _pv_cols = st.columns(_pv_bn)
                         for _pv_bi in range(_pv_bn):
                             _pv_pfx = f'nt_bt_{_pv_bi}'
                             _pv_nm = st.session_state.get(f'{_pv_pfx}_name', '').strip() or f"Test {_pv_bi+1}"
                             if f'{_pv_pfx}_preview_val' not in st.session_state:
                                 st.session_state[f'{_pv_pfx}_preview_val'] = float(
                                     st.session_state.get(f'{_pv_pfx}_zone_to_0', 5.0)) * 0.6
-                            _pv_cols[_pv_bi % 4].number_input(_pv_nm, key=f'{_pv_pfx}_preview_val', step=0.1)
+                            _pv_cols[_pv_bi].number_input(_pv_nm, key=f'{_pv_pfx}_preview_val', step=0.1)
 
             with nt_prev:
                 st.markdown("""
