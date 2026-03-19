@@ -217,14 +217,14 @@ def generate_data():
             (p103_id, field, val)
         )
 
-    # Bilbo's Timeline: 4 visits over 1 year showing a clear health improvement arc
+    # Bilbo's Timeline: 3 visits over 1 year showing a clear health improvement arc.
+    # Each visit logs all tests in a group on the same day, giving:
+    #   Cholesterol (Total/HDL/LDL): 3 days × 3 tests = 9 results
+    #   Blood Pressure (Systolic/Diastolic): 3 days × 2 tests = 6 results
     timeline = [
         {"days_ago": 365, "weight": "95", "bmi": "31.0", "sys": "155", "dia": "95", "f_gluc": "6.8", "t_chol": "6.5", "hdl": "0.9", "ldl": "4.2",
          "note": "Patient presents with hypertension, elevated glucose, and poor lipids. Highly sedentary lifestyle (lots of pipe-weed and second breakfasts). Advised strict diet.",
          "chol_note": "Lipids significantly elevated. Dietary intervention prescribed."},
-        {"days_ago": 270, "weight": "91", "bmi": "29.7", "sys": "142", "dia": "90", "f_gluc": "6.1", "t_chol": "5.8", "hdl": "1.1", "ldl": "3.8",
-         "note": "Making progress. Cut out elevenses. Blood pressure improving but still elevated.",
-         "chol_note": "Lipids improving. Continue dietary changes."},
         {"days_ago": 180, "weight": "86", "bmi": "28.0", "sys": "135", "dia": "85", "f_gluc": "5.7", "t_chol": "5.2", "hdl": "1.3", "ldl": "3.1",
          "note": "Excellent progress. Patient is hiking daily (claims he is preparing for an adventure). Glucose is now in normal range.",
          "chol_note": "Good improvement. HDL trending in the right direction."},
