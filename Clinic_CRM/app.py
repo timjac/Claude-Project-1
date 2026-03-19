@@ -893,7 +893,7 @@ elif st.session_state.page == "Admin Console":
                         div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMarkdownContainer"]),
                         div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stDataFrame"]),
                         div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stForm"]) {
-                            animation: _sec_fadein 0.18s ease-out;
+                            animation: _sec_fadein 0.08s ease-out;
                         }
                         </style>""", unsafe_allow_html=True)
 
