@@ -1830,6 +1830,8 @@ elif st.session_state.page == "Admin Console":
             st.markdown("#### Step 2 — Configuration")
 
             if nt_graph == "gauge":
+                st.markdown("##### Snapshot Chart")
+                st.caption("Configures the dial that appears on the report for the patient's latest reading.")
                 _gc1, _gc2 = st.columns(2)
                 nt_gauge_style = _gc1.radio("Style", ["curved", "straight"],
                                             index=["curved","straight"].index(
@@ -1865,12 +1867,15 @@ elif st.session_state.page == "Admin Console":
                 if 'nt_preview_val' not in st.session_state:
                     st.session_state['nt_preview_val'] = _nt_g_min + (_nt_g_max - _nt_g_min) * 0.55
                 _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
-                                      help="Used in the live chart preview only")
-                st.markdown("**Trend Chart**")
+                                      help="Sets the sample value shown in the live preview only — not saved")
+
+                st.divider()
+                st.markdown("##### Trend Chart")
+                st.caption("Shown automatically when the patient has more than one result on record.")
                 _tc1, _tc2 = st.columns(2)
                 with _tc1:
                     _nt_trend_colour_hex = _palette_select(
-                        "Trend line colour", "nt_trend_colour",
+                        "Line colour", "nt_trend_colour",
                         st.session_state.get("nt_trend_colour", "#003366"), PALETTE
                     )
                     st.session_state["nt_trend_colour"] = _nt_trend_colour_hex
@@ -1892,7 +1897,9 @@ elif st.session_state.page == "Admin Console":
                         st.session_state[f'nt_dot_stroke_{_di}'] = '#003366'
                 nd = st.session_state['nt_n_dots']
 
-                st.markdown("**Dots** (1–4)")
+                st.markdown("##### Snapshot Chart")
+                st.caption("Configures the dot-on-scale chart that appears on the report for the patient's latest reading.")
+                st.markdown("**Dots**")
                 _dh = st.columns([1.8, 1.2, 2.5, 2.5, 0.8])
                 for _lbl, _c in zip(["Test Name", "Display Label", "Fill Colour", "Stroke Colour", ""], _dh):
                     _c.caption(_lbl)
@@ -1933,7 +1940,7 @@ elif st.session_state.page == "Admin Console":
                     st.session_state['nt_n_dots'] = nd + 1
                     st.rerun()
 
-                st.markdown("**Zones**")
+                st.markdown("**Scale & Zones**")
                 _az_col, _ = st.columns(2)
                 if 'nt_axis_start' not in st.session_state:
                     st.session_state['nt_axis_start'] = 0.0
@@ -1953,15 +1960,25 @@ elif st.session_state.page == "Admin Console":
                 _nt_dz = _zbuild('nt', nt_n_zones)
                 _nt_d_min = _nt_dz[0]['from'] if _nt_dz else 0.0
                 _nt_d_max = _nt_dz[-1]['to']  if _nt_dz else 200.0
-                st.markdown("**Preview values**")
+                st.markdown("**Preview values** *(not saved — used in the live preview only)*")
                 _dpv_cols = st.columns(min(nd, 2))
                 for _di in range(min(nd, 2)):
                     if f'nt_preview_val_{_di}' not in st.session_state:
                         st.session_state[f'nt_preview_val_{_di}'] = _nt_d_min + (_nt_d_max - _nt_d_min) * (0.4 + _di * 0.2)
                     _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
                     _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
-                st.markdown("**Trend Chart**")
-                _nt_dot_trend_style = st.radio("Line style", ["Solid", "Dashed"],
+
+                st.divider()
+                st.markdown("##### Trend Chart")
+                st.caption("Shown automatically when the patient has more than one result on record. Each dot becomes a separate line.")
+                _dtc1, _dtc2 = st.columns(2)
+                with _dtc1:
+                    _nt_dot_trend_colour_hex = _palette_select(
+                        "Line colour", "nt_trend_colour",
+                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
+                    )
+                    st.session_state["nt_trend_colour"] = _nt_dot_trend_colour_hex
+                _nt_dot_trend_style = _dtc2.radio("Line style", ["Solid", "Dashed"],
                                                 index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
                                                 key="nt_dot_trend_style_radio", horizontal=True)
                 st.session_state["nt_trend_style"] = _nt_dot_trend_style
@@ -1970,14 +1987,17 @@ elif st.session_state.page == "Admin Console":
                 st.session_state["nt_show_markers"] = _nt_dot_show_markers
 
             elif nt_graph == "bar":
-                nt_bar_n = int(st.number_input("Number of component tests", min_value=1, max_value=8,
+                st.markdown("##### Snapshot Chart")
+                st.caption("Configures the horizontal bar chart that appears on the report for the patient's latest readings.")
+                _bbar_n_col, _ = st.columns(2)
+                nt_bar_n = int(_bbar_n_col.number_input("Number of component tests", min_value=1, max_value=8,
                                                 value=st.session_state.get('nt_bar_n', 2),
                                                 key="nt_bar_n_input"))
                 st.session_state['nt_bar_n'] = nt_bar_n
                 st.info(
                     "**Target** must start with `>` or `<` (e.g. `> 1.0` or `< 5.2`). "
-                    "This is what controls when the **Alert Bar** colour is used — "
-                    "if the recorded value misses the target direction, the alert colour is applied.",
+                    "This controls when the **Alert Bar** colour is applied — "
+                    "if the recorded value misses the target direction, the alert colour is used.",
                     icon="ℹ️"
                 )
 
@@ -2028,8 +2048,8 @@ elif st.session_state.page == "Admin Console":
                     if f'{_bpfx}_preview_val' not in st.session_state:
                         st.session_state[f'{_bpfx}_preview_val'] = float(
                             st.session_state.get(f'{_bpfx}_zone_to_0', 5.0)) * 0.6
-                    _bpv_col.number_input("Preview value", key=f'{_bpfx}_preview_val', step=0.1,
-                                          help="Used in the live chart preview only")
+                    _bpv_col.number_input("Preview value *(not saved)*", key=f'{_bpfx}_preview_val', step=0.1,
+                                          help="Sets the sample value shown in the live preview only — not saved")
                     _bnz = st.session_state.get(f'{_bpfx}_n_zones', 2)
                     st.markdown("**Zones**")
                     _zrender(_bpfx, _bnz, rm_key_sfx=f"_bt{_bi}")
@@ -2059,8 +2079,18 @@ elif st.session_state.page == "Admin Console":
                         "Current upper limits: " + ", ".join(f"{l:g}" for l in _nt_bar_limits),
                         icon="⚠️"
                     )
-                st.markdown("**Trend Chart**")
-                _nt_bar_trend_style = st.radio("Line style", ["Solid", "Dashed"],
+
+                st.divider()
+                st.markdown("##### Trend Chart")
+                st.caption("Shown automatically when the patient has more than one result on record. Each component test becomes a separate line.")
+                _btc1, _btc2 = st.columns(2)
+                with _btc1:
+                    _nt_bar_trend_colour_hex = _palette_select(
+                        "Line colour", "nt_trend_colour",
+                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
+                    )
+                    st.session_state["nt_trend_colour"] = _nt_bar_trend_colour_hex
+                _nt_bar_trend_style = _btc2.radio("Line style", ["Solid", "Dashed"],
                                                 index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
                                                 key="nt_bar_trend_style_radio", horizontal=True)
                 st.session_state["nt_trend_style"] = _nt_bar_trend_style
@@ -2069,11 +2099,16 @@ elif st.session_state.page == "Admin Console":
                 st.session_state["nt_show_markers"] = _nt_bar_show_markers
 
             elif nt_graph == "none":
-                st.markdown("**Trend Chart**")
+                st.markdown("##### Snapshot Chart")
+                st.caption("No chart is rendered — the latest value is displayed as large text only. There is nothing to configure here.")
+
+                st.divider()
+                st.markdown("##### Trend Chart")
+                st.caption("Shown automatically when the patient has more than one result on record.")
                 _tc1n, _tc2n = st.columns(2)
                 with _tc1n:
                     _nt_none_trend_colour_hex = _palette_select(
-                        "Trend line colour", "nt_trend_colour",
+                        "Line colour", "nt_trend_colour",
                         st.session_state.get("nt_trend_colour", "#003366"), PALETTE
                     )
                     st.session_state["nt_trend_colour"] = _nt_none_trend_colour_hex
@@ -2084,8 +2119,6 @@ elif st.session_state.page == "Admin Console":
                 _nt_none_show_markers = st.checkbox("Mark each data point", key="nt_none_show_markers",
                                                      value=st.session_state.get("nt_show_markers", False))
                 st.session_state["nt_show_markers"] = _nt_none_show_markers
-
-            # nothing more needed for none (trend config added above)
 
             # ---- STEP 3: Metadata & Save (inside a form) ----
             _step3_label = "#### Step 3 — Metadata (applies to the whole group)" if nt_graph in ("dot", "bar") else "#### Step 3 — Metadata"
