@@ -901,6 +901,8 @@ elif st.session_state.page == "Admin Console":
                     # ---- SHIFT PATTERN ----
                     if _cur_sec == "shift":
                         _sm_pat, _sm_days = crm.get_shift_pattern(_sel)
+                        _edit_key = f"admin_shift_edit_{_sel}"
+                        _show_edit = st.session_state.get(_edit_key, False)
 
                         if _sm_pat:
                             _sm_dmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
@@ -917,62 +919,72 @@ elif st.session_state.page == "Admin Console":
                             st.caption(f"Current: **{_sm_pat['pattern_type'].title()}** — starts {_sm_pat['anchor_date']}")
                             st.dataframe(_sm_df, hide_index=True, use_container_width=True)
                         else:
-                            st.info("No shift pattern set yet. Configure one below.")
+                            st.info("No shift pattern set yet.")
 
-                        st.markdown("**✏️ Set / Change Shift Pattern**")
-                        _sm_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
-                                            key=f"sm_edit_type_{_sel}")
-                        _sm_anchor_def = date.fromisoformat(_sm_pat['anchor_date']) if _sm_pat else date.today()
-                        _sm_anchor = st.date_input("Pattern Start Date (must be a Monday)",
-                                                   value=_sm_anchor_def, key=f"sm_anchor_{_sel}")
-                        if _sm_anchor.weekday() != 0:
-                            st.warning("⚠️ The start date must be a Monday.")
-                        else:
-                            _sm_nwks  = 1 if _sm_type == "Weekly" else 2
-                            _sm_exmap = {}
-                            if _sm_pat and _sm_pat['pattern_type'] == _sm_type.lower():
-                                _sm_exmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
-                            _sm_dst = {}
+                        if st.button(
+                            "✏️ Set / Change Shift Pattern" if not _show_edit else "✕ Cancel Edit",
+                            key=f"sm_edit_toggle_{_sel}",
+                            type="primary" if _show_edit else "secondary"
+                        ):
+                            st.session_state[_edit_key] = not _show_edit
+                            st.rerun()
 
-                            def _sm_render_week(wk):
-                                _h = st.columns([2, 1, 1.5, 1.5])
-                                for _l, _c in zip(["Day", "On", "Start", "End"], _h):
-                                    _c.caption(_l)
-                                for _d in range(7):
-                                    _ex = _sm_exmap.get((wk, _d))
-                                    _dw = bool(_ex)
-                                    _ds = datetime.strptime(_ex['start_time'] if _ex and _ex['start_time'] else "09:00", "%H:%M").time()
-                                    _de = datetime.strptime(_ex['end_time']   if _ex and _ex['end_time']   else "17:00", "%H:%M").time()
-                                    c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
-                                    c1.write(_SM_DAY_NAMES[_d])
-                                    _on = c2.checkbox("", value=_dw, key=f"sm_w{wk}_d{_d}_{_sel}",
-                                                      label_visibility="collapsed")
-                                    if _on:
-                                        _s = c3.time_input("", value=_ds, key=f"sm_w{wk}_d{_d}_s_{_sel}",
-                                                           label_visibility="collapsed", step=900)
-                                        _e = c4.time_input("", value=_de, key=f"sm_w{wk}_d{_d}_e_{_sel}",
-                                                           label_visibility="collapsed", step=900)
-                                        _sm_dst[(wk, _d)] = (_s, _e)
-
-                            if _sm_nwks == 2:
-                                _sc1, _sc2 = st.columns(2)
-                                with _sc1:
-                                    st.markdown("**— Week 1 —**")
-                                    _sm_render_week(1)
-                                with _sc2:
-                                    st.markdown("**— Week 2 —**")
-                                    _sm_render_week(2)
+                        if _show_edit:
+                            st.divider()
+                            _sm_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
+                                                key=f"sm_edit_type_{_sel}")
+                            _sm_anchor_def = date.fromisoformat(_sm_pat['anchor_date']) if _sm_pat else date.today()
+                            _sm_anchor = st.date_input("Pattern Start Date (must be a Monday)",
+                                                       value=_sm_anchor_def, key=f"sm_anchor_{_sel}")
+                            if _sm_anchor.weekday() != 0:
+                                st.warning("⚠️ The start date must be a Monday.")
                             else:
-                                _sm_render_week(1)
+                                _sm_nwks  = 1 if _sm_type == "Weekly" else 2
+                                _sm_exmap = {}
+                                if _sm_pat and _sm_pat['pattern_type'] == _sm_type.lower():
+                                    _sm_exmap = {(d['week_number'], d['day_of_week']): d for d in _sm_days}
+                                _sm_dst = {}
 
-                            if st.button("💾 Save Shift Pattern", type="primary", key=f"sm_save_{_sel}"):
-                                crm.save_shift_pattern(
-                                    _sel, _sm_type.lower(), str(_sm_anchor),
-                                    [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
-                                     for (wk, d), (s, e) in _sm_dst.items()],
-                                    st.session_state['username'])
-                                st.success(f"✅ Shift pattern saved for {_sel}.")
-                                st.rerun()
+                                def _sm_render_week(wk):
+                                    _h = st.columns([2, 1, 1.5, 1.5])
+                                    for _l, _c in zip(["Day", "On", "Start", "End"], _h):
+                                        _c.caption(_l)
+                                    for _d in range(7):
+                                        _ex = _sm_exmap.get((wk, _d))
+                                        _dw = bool(_ex)
+                                        _ds = datetime.strptime(_ex['start_time'] if _ex and _ex['start_time'] else "09:00", "%H:%M").time()
+                                        _de = datetime.strptime(_ex['end_time']   if _ex and _ex['end_time']   else "17:00", "%H:%M").time()
+                                        c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
+                                        c1.write(_SM_DAY_NAMES[_d])
+                                        _on = c2.checkbox("", value=_dw, key=f"sm_w{wk}_d{_d}_{_sel}",
+                                                          label_visibility="collapsed")
+                                        if _on:
+                                            _s = c3.time_input("", value=_ds, key=f"sm_w{wk}_d{_d}_s_{_sel}",
+                                                               label_visibility="collapsed", step=900)
+                                            _e = c4.time_input("", value=_de, key=f"sm_w{wk}_d{_d}_e_{_sel}",
+                                                               label_visibility="collapsed", step=900)
+                                            _sm_dst[(wk, _d)] = (_s, _e)
+
+                                if _sm_nwks == 2:
+                                    _sc1, _sc2 = st.columns(2)
+                                    with _sc1:
+                                        st.markdown("**— Week 1 —**")
+                                        _sm_render_week(1)
+                                    with _sc2:
+                                        st.markdown("**— Week 2 —**")
+                                        _sm_render_week(2)
+                                else:
+                                    _sm_render_week(1)
+
+                                if st.button("💾 Save Shift Pattern", type="primary", key=f"sm_save_{_sel}"):
+                                    crm.save_shift_pattern(
+                                        _sel, _sm_type.lower(), str(_sm_anchor),
+                                        [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
+                                         for (wk, d), (s, e) in _sm_dst.items()],
+                                        st.session_state['username'])
+                                    st.session_state[_edit_key] = False
+                                    st.success(f"✅ Shift pattern saved for {_sel}.")
+                                    st.rerun()
 
                     # ---- TIME OFF ----
                     elif _cur_sec == "time_off":
