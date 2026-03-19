@@ -142,17 +142,33 @@ Admin users can manage staff accounts (add/remove users, change passwords, set r
 
 The Admin Console has four tabs:
 
-**Staff Management** — add users via a collapsible form. A "Manage Existing Staff" expander shows a per-row table with inline action buttons:
-- **Password** — opens an inline change-password form; Back returns to the table
-- **Delete** — two-click confirmation (first click arms, second confirms); disabled for own account and last remaining account
+**Staff Management** — two collapsible sections:
+
+- **Add New Staff Member** — form to create a new account (username, password, role).
+- **Manage Existing Staff** — select a staff member from a dropdown, then choose from four contextual action panels (all hidden until selected):
+  - **View/Edit Shift Pattern** — see the current pattern and manage scheduled changes (see Shift Patterns below).
+  - **Manage Time Off** — record and delete availability exceptions for the selected staff member.
+  - **Change Password** — inline password update form.
+  - **Delete Staff Member** — explicit confirm/cancel step; disabled for own account and last remaining account.
 
 **Report Designer** — configure the PDF theme (colours, font, border radius, spacing) with six named presets loaded from `system_settings`. A live PDF preview renders in real time alongside the controls. Saving writes the theme back to `system_settings` and applies to all future reports.
 
 **Staff Rota** — manage staff working patterns and availability exceptions:
 
-- **Shift Patterns** — each staff member can have one active pattern, either weekly (7-day cycle) or fortnightly (14-day cycle). The pattern is anchored to a Monday start date so fortnightly cycles stay correctly aligned. An interactive day grid lets admins set working/off and start/end times per day. Saving a new pattern automatically deactivates the previous one.
+- **Shift Patterns** — each staff member holds up to three pattern slots: `current` (active today), `future` (scheduled to take over on a future Monday), and `previous` (the most recently superseded pattern, kept for reference). Older records are archived. Patterns are weekly (7-day cycle) or fortnightly (14-day cycle), anchored to a Monday start date so cycle alignment is always correct.
 
-- **Availability Overrides** — record exceptions to the regular pattern (Annual Leave, Training, Sick Leave, Appointment, Other). Overrides can be full-day or cover a partial time range, and an "Available" flag supports extra shifts. Overrides always take precedence over the base pattern when computing availability for a given date.
+  All changes create a new pattern record — there is no in-place editing. The **Schedule Pattern Change** form determines the slot automatically based on the chosen start date:
+  - **Future Monday** → stored as `future`; current stays active until that date, then auto-promotes overnight.
+  - **Today** → stored as `current` immediately; existing current moves to `previous`.
+  - **Past Monday** → intent is ambiguous; the admin is asked to choose "Replace current" (`current` slot) or "Store as previous" (`previous` slot). If the resulting date ordering would be inconsistent (Previous dated after Current), a conflict warning is shown before saving.
+
+  Auto-promotion runs whenever a staff member's patterns are read: if a `future` pattern's anchor date has arrived, it cascades `previous→archived`, `current→previous`, `future→current`.
+
+  Fortnightly pattern tables display as **Day | Week 1 | Week 2** columns for readability.
+
+  Within the Shift Pattern panel, **Upcoming Change** and **Previous Pattern** sections are hidden behind toggle buttons and only shown on demand.
+
+- **Manage Time Off** — record exceptions to the regular pattern (Annual Leave, Training, Sick Leave, Appointment, Other). Overrides can be full-day or cover a partial time range, and an "Available" flag supports extra shifts. Overrides always take precedence over the base pattern when computing availability for a given date.
 
 The appointment booking form queries the rota automatically: it shows scheduled hours in green, a warning when the provider is not rostered on that day, and a leave/sickness alert when an override is active.
 
@@ -197,7 +213,7 @@ The lobby has two panels:
 | `test_groups` | First-class group entity — holds `chart_type`, `trend_chart_type`, `trend_config`, and `description` at the group level |
 | `test_definitions` | Individual test metadata (unit, target, chart config JSON); linked to `test_groups` via `group_id` |
 | `appointments` | Scheduled appointments per patient |
-| `staff_shift_patterns` | Active shift pattern per staff member (weekly/fortnightly, anchor date) |
+| `staff_shift_patterns` | Shift pattern records per staff member. Each row has a `status` of `current`, `future`, `previous`, or `archived`. At most one of each of the first three exist per staff member at any time. |
 | `staff_shift_days` | Per-day working hours within a pattern (week number, day of week, start/end time) |
 | `staff_availability_overrides` | Exception records overriding the pattern for a specific date (leave, training, sickness, etc.) |
 | `report_log` | Header record of each generated PDF report (includes `practitioner_statement` and `next_steps`) |
@@ -210,6 +226,8 @@ The lobby has two panels:
 ## Dummy Data
 
 `dummy_data.py` seeds the database with 103 fantasy-named patients (from Lord of the Rings, Harry Potter, Game of Thrones, and The Witcher). Patient 103 — Bilbo Baggins — is a curated "golden record" with a longitudinal health journey across four visits, designed to produce rich trend charts in PDF reports.
+
+The script seeds shift patterns for all five fantasy staff members. Two of them (**Dr. Elrond** and **Maester Luwin**) have a `previous` pattern on record — they each moved from standard Mon–Fri 09:00–17:00 hours to a new pattern at different points in the past. **Nurse Pomfrey** has a `future` pattern scheduled two Mondays from the seed date, switching from a fortnightly early/late rotation to fixed 08:00–16:00 hours. This gives working examples of all three pattern slots in the UI immediately after seeding.
 
 The script calls `initialize_database()` before inserting any data, so it is safe to run against a fresh (or missing) database. Run it from inside the `Clinic_CRM/` directory so the relative `family_clinic.db` path resolves correctly:
 
