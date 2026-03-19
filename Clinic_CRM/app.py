@@ -904,9 +904,7 @@ elif st.session_state.page == "Admin Console":
                         _sm_fut,   _sm_fdays = _sp['future']
                         _sm_prev,  _sm_pdays = _sp['previous']
 
-                        _edit_key      = f"admin_shift_edit_{_sel}"
                         _fut_edit_key  = f"admin_shift_fut_{_sel}"
-                        _show_edit     = st.session_state.get(_edit_key, False)
                         _show_fut_form = st.session_state.get(_fut_edit_key, False)
 
                         def _render_pattern_table(pat, days):
@@ -967,36 +965,6 @@ elif st.session_state.page == "Admin Console":
                         else:
                             st.info("No shift pattern set yet.")
 
-                        if st.button(
-                            "✏️ Edit Current Pattern" if not _show_edit else "✕ Cancel Edit",
-                            key=f"sm_edit_toggle_{_sel}",
-                            type="primary" if _show_edit else "secondary"
-                        ):
-                            st.session_state[_edit_key] = not _show_edit
-                            st.rerun()
-
-                        if _show_edit:
-                            st.divider()
-                            _sm_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
-                                                key=f"sm_edit_type_{_sel}",
-                                                index=0 if not _sm_pat or _sm_pat['pattern_type']=='weekly' else 1)
-                            _sm_anchor_def = date.fromisoformat(_sm_pat['anchor_date']) if _sm_pat else date.today()
-                            _sm_anchor = st.date_input("Start Date (must be a Monday)",
-                                                       value=_sm_anchor_def, key=f"sm_anchor_{_sel}")
-                            if _sm_anchor.weekday() != 0:
-                                st.warning("⚠️ Start date must be a Monday.")
-                            else:
-                                _sm_nwks = 1 if _sm_type == "Weekly" else 2
-                                _sm_dst  = _render_shift_day_editor("sm", _sm_pat, _sm_days, _sm_nwks)
-                                if st.button("💾 Save Current Pattern", type="primary", key=f"sm_save_{_sel}"):
-                                    crm.save_shift_pattern(_sel, _sm_type.lower(), str(_sm_anchor),
-                                                           [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
-                                                            for (wk, d), (s, e) in _sm_dst.items()],
-                                                           st.session_state['username'], slot='current')
-                                    st.session_state[_edit_key] = False
-                                    st.success(f"✅ Current pattern saved for {_sel}.")
-                                    st.rerun()
-
                         st.divider()
 
                         # ── Upcoming change ───────────────────────────────
@@ -1006,7 +974,7 @@ elif st.session_state.page == "Admin Console":
                             _render_pattern_table(_sm_fut, _sm_fdays)
                             _fcol1, _fcol2 = st.columns(2)
                             if _fcol1.button(
-                                "✏️ Edit Upcoming Change" if not _show_fut_form else "✕ Cancel Edit",
+                                "📅 Reschedule" if not _show_fut_form else "✕ Cancel",
                                 key=f"sm_fut_toggle_{_sel}",
                                 type="primary" if _show_fut_form else "secondary",
                                 use_container_width=True
@@ -1031,26 +999,36 @@ elif st.session_state.page == "Admin Console":
 
                         if _show_fut_form:
                             st.divider()
+                            # Pre-populate from existing future if rescheduling, otherwise from current
+                            _pre_pat  = _sm_fut  if _sm_fut  else _sm_pat
+                            _pre_days = _sm_fdays if _sm_fut else _sm_days
                             _fut_type = st.radio("Pattern Type", ["Weekly", "Fortnightly"], horizontal=True,
                                                  key=f"sm_fut_type_{_sel}",
-                                                 index=0 if not _sm_fut or _sm_fut['pattern_type']=='weekly' else 1)
-                            _fut_anchor_def = date.fromisoformat(_sm_fut['anchor_date']) if _sm_fut else (date.today() + timedelta(days=(7 - date.today().weekday())))
-                            _fut_anchor = st.date_input("Takes Effect (must be a Monday)",
+                                                 index=0 if not _pre_pat or _pre_pat['pattern_type'] == 'weekly' else 1)
+                            _days_to_next = (7 - date.today().weekday()) % 7 or 7
+                            _fut_anchor_def = date.fromisoformat(_sm_fut['anchor_date']) if _sm_fut else (date.today() + timedelta(days=_days_to_next))
+                            _fut_anchor = st.date_input("Start Date (must be a Monday)",
                                                         value=_fut_anchor_def, key=f"sm_fut_anchor_{_sel}")
                             if _fut_anchor.weekday() != 0:
                                 st.warning("⚠️ Start date must be a Monday.")
-                            elif _fut_anchor <= date.today():
-                                st.warning("⚠️ Date must be in the future. Use 'Edit Current Pattern' for immediate changes.")
                             else:
+                                _slot = 'future' if _fut_anchor > date.today() else 'current'
+                                if _slot == 'current':
+                                    st.info("ℹ️ This date is today or in the past — the new pattern will become active immediately and the current one will be archived as the previous pattern.")
+                                else:
+                                    st.info(f"ℹ️ The current pattern stays active until {_fut_anchor}, when this new pattern will take over automatically.")
                                 _fut_nwks = 1 if _fut_type == "Weekly" else 2
-                                _fut_dst  = _render_shift_day_editor("sf", _sm_fut, _sm_fdays, _fut_nwks)
-                                if st.button("💾 Save Upcoming Change", type="primary", key=f"sm_fut_save_{_sel}"):
+                                _fut_dst  = _render_shift_day_editor("sf", _pre_pat, _pre_days, _fut_nwks)
+                                if st.button("💾 Save Pattern Change", type="primary", key=f"sm_fut_save_{_sel}"):
                                     crm.save_shift_pattern(_sel, _fut_type.lower(), str(_fut_anchor),
                                                            [(wk, d, s.strftime("%H:%M"), e.strftime("%H:%M"))
                                                             for (wk, d), (s, e) in _fut_dst.items()],
-                                                           st.session_state['username'], slot='future')
+                                                           st.session_state['username'], slot=_slot)
                                     st.session_state[_fut_edit_key] = False
-                                    st.success(f"✅ Pattern change scheduled from {_fut_anchor}.")
+                                    if _slot == 'current':
+                                        st.success(f"✅ New pattern saved and now active for {_sel}.")
+                                    else:
+                                        st.success(f"✅ Pattern change scheduled from {_fut_anchor}.")
                                     st.rerun()
 
                         st.divider()
