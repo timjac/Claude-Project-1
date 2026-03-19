@@ -326,7 +326,11 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
         trend_config_parsed = {}
 
     img_gauge, img_trend = None, None
-    display_val = str(val)
+    try:
+        _dv = float(val)
+        display_val = str(int(_dv)) if _dv.is_integer() else f"{_dv:.1f}"
+    except (ValueError, TypeError):
+        display_val = str(val)
     display_unit = unit if unit else ''
     dynamic_chart_h = 42
 
