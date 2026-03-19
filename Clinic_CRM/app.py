@@ -1486,13 +1486,23 @@ elif st.session_state.page == "Admin Console":
             return float(st.session_state.get(f'{pfx}_zone_to_{i-1}', 0.0))
 
         def _zbuild(pfx, n):
-            """Assemble zones list from current session-state widget values."""
+            """Assemble zones list from current session-state widget values.
+            Zone colours are read via the _psel widget key where available so
+            the value is always current (not one render behind the explicit assignment)."""
             result = []
             for i in range(n):
                 from_v = _zfrom(pfx, i)
                 to_v   = float(st.session_state.get(f'{pfx}_zone_to_{i}', from_v + 10.0))
                 is_t   = bool(st.session_state.get(f'{pfx}_zone_transp_{i}', False))
-                color  = 'transparent' if is_t else str(st.session_state.get(f'{pfx}_zone_color_{i}', '#D4EDDA'))
+                if is_t:
+                    color = 'transparent'
+                else:
+                    _psel = st.session_state.get(f'{pfx}_zone_color_{i}_psel')
+                    if _psel:
+                        color = next((p['hex'] for p in PALETTE if p['name'] == _psel),
+                                     st.session_state.get(f'{pfx}_zone_color_{i}', '#D4EDDA'))
+                    else:
+                        color = str(st.session_state.get(f'{pfx}_zone_color_{i}', '#D4EDDA'))
                 label  = str(st.session_state.get(f'{pfx}_zone_label_{i}', ''))
                 result.append({"from": from_v, "to": to_v, "color": color, "label": label})
             return result
