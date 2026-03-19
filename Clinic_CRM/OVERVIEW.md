@@ -109,7 +109,7 @@ Tests are organised into **groups** via the `test_groups` table. A group (e.g., 
 | `graph_type` | Example Tests | Visual |
 |---|---|---|
 | `gauge` | Heart Rate, Blood Glucose, BMI, O2 Saturation, Temperature | Half-donut gauge (style: `curved`) or segmented bar (style: `straight`) with colour zones |
-| `dot` | Systolic / Diastolic | One or two value markers on a horizontal zone-shaded scale (e.g. Blood Pressure dumbbell) |
+| `dot` | Systolic / Diastolic | One or two value markers on a horizontal zone-shaded scale (e.g. Blood Pressure dumbbell). For groups with 2+ dots, the admin sets `result_display`: `concatenated` (e.g. `155/95`) or `separate` (each test on its own labelled line). |
 | `bar` | Total / HDL / LDL Cholesterol | Horizontal bars against a zone-shaded background |
 | `none` | Weight, Height | Large typographic display only — no chart |
 
@@ -146,9 +146,13 @@ Staff can generate a branded PDF health report for any patient. The report:
 - Supports per-test note overrides via an inline data editor (shows Latest date and result count per test)
 - Includes a Practitioner's Opening Statement and a Next Steps section
 - Embeds the appropriate chart (gauge, dot, bar, trend) for each test
-- Shows a history table of previous results
+- Shows a history table of previous results (up to 9 entries)
 - Supports theme customisation (colours, fonts, border radius, spacing) stored in `system_settings`
 - Uses custom TTF fonts (Roboto, Montserrat, Open Sans) if selected; falls back to Helvetica safely
+
+**PDF download:** clicking "Download PDF & Log to Patient Record" writes the file directly to `~/Downloads/` and shows a confirmation message with the filename. No browser Save As dialog is shown.
+
+**History table behaviour for multi-test groups:** for `bar` and `dot` (separate mode) groups, the history table shows one row per test per visit rather than one row per visit. The visit date appears only on the first test row; subsequent tests in the same visit show a blank date cell. The most recent visit's tests are excluded from the history section (they are already shown in the snapshot value area). Up to 9 history rows are displayed, supporting three visits of three tests each.
 
 Report generation is logged to `report_log` and `report_contents` for audit purposes.
 
@@ -232,7 +236,7 @@ The lobby has two panels:
 | `encounters` | Clinical encounters (date, type, provider) |
 | `encounter_notes` | Free-text notes linked to encounters |
 | `test_results` | Test results with two-stage lifecycle (Pending/Complete) |
-| `test_groups` | First-class group entity — holds `chart_type`, `trend_chart_type`, `trend_config`, and `description` at the group level |
+| `test_groups` | First-class group entity — holds `chart_type`, `trend_chart_type`, `trend_config`, `description`, and `result_display` at the group level |
 | `test_definitions` | Individual test metadata (unit, target, chart config JSON); linked to `test_groups` via `group_id` |
 | `appointments` | Scheduled appointments per patient |
 | `staff_shift_patterns` | Shift pattern records per staff member. Each row has a `status` of `current`, `future`, `previous`, or `archived`. At most one of each of the first three exist per staff member at any time. |
@@ -247,7 +251,7 @@ The lobby has two panels:
 
 ## Dummy Data
 
-`dummy_data.py` seeds the database with 103 fantasy-named patients (from Lord of the Rings, Harry Potter, Game of Thrones, and The Witcher). Patient 103 — Bilbo Baggins — is a curated "golden record" with a longitudinal health journey across four visits, designed to produce rich trend charts in PDF reports.
+`dummy_data.py` seeds the database with 103 fantasy-named patients (from Lord of the Rings, Harry Potter, Game of Thrones, and The Witcher). Patient 103 — Bilbo Baggins — is a curated "golden record" with a longitudinal health journey across three visits (365, 180, and 30 days ago), designed to produce rich trend charts in PDF reports. All tests within a group are recorded on the same encounter date per visit, giving clean grouped result counts: Cholesterol 3 × 3 = 9 results, Blood Pressure 3 × 2 = 6 results.
 
 The script seeds shift patterns for all five fantasy staff members. Two of them (**Dr. Elrond** and **Maester Luwin**) have a `previous` pattern on record — they each moved from standard Mon–Fri 09:00–17:00 hours to a new pattern at different points in the past. **Nurse Pomfrey** has a `future` pattern scheduled two Mondays from the seed date, switching from a fortnightly early/late rotation to fixed 08:00–16:00 hours. This gives working examples of all three pattern slots in the UI immediately after seeding.
 
