@@ -1642,7 +1642,7 @@ elif st.session_state.page == "Admin Console":
         with st.expander("➕ Add New Test Group", expanded=False):
             from modules.charts import render_gauge, render_dot, render_bars, render_text
 
-            nt_left, nt_right = st.columns([1.1, 1], gap="large")
+            nt_left, nt_right = st.columns([1.6, 1], gap="large")
 
             with nt_left:
                 # ---- STEP 1: Graph type ----
@@ -2068,8 +2068,16 @@ elif st.session_state.page == "Admin Console":
                                 finally:
                                     crm.close()
 
-            # ---- RIGHT COLUMN: Live Preview (full PDF banner) ----
+            # ---- RIGHT COLUMN: Live Preview ----
             with nt_right:
+                st.markdown("""
+                <style>
+                div[data-testid="column"]:last-of-type > div[data-testid="stVerticalBlock"] {
+                    position: sticky;
+                    top: 3.5rem;
+                }
+                </style>
+                """, unsafe_allow_html=True)
                 st.markdown("#### Live Preview")
                 try:
                     _gt_prev    = st.session_state['nt_graph_type']
@@ -2204,7 +2212,7 @@ elif st.session_state.page == "Admin Console":
                         _b64_prev = base64.b64encode(_prev_pdf).decode()
                         st.markdown(
                             f'<iframe src="data:application/pdf;base64,{_b64_prev}" '
-                            f'width="100%" height="680" type="application/pdf"></iframe>',
+                            f'width="100%" height="420" type="application/pdf"></iframe>',
                             unsafe_allow_html=True
                         )
 
