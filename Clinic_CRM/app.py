@@ -2211,7 +2211,7 @@ elif st.session_state.page == "Admin Console":
                         )
                         _b64_prev = base64.b64encode(_prev_pdf).decode()
                         st.markdown(
-                            f'<iframe src="data:application/pdf;base64,{_b64_prev}" '
+                            f'<iframe src="data:application/pdf;base64,{_b64_prev}#toolbar=0&navpanes=0" '
                             f'width="100%" height="420" type="application/pdf"></iframe>',
                             unsafe_allow_html=True
                         )
