@@ -331,28 +331,47 @@ def generate_data():
     for username, password, role in STAFF_SEEDS:
         crm.add_staff_member(username, password, role)
 
-    # Anchor Mondays — all patterns start on a Monday.
+    # Anchor dates — all patterns start on a Monday.
     # ANCHOR_W1 is the most recent Monday; ANCHOR_FN is one week earlier so that
     # Nurse Pomfrey's fortnightly pattern is currently mid-cycle (week 2 today).
     ANCHOR_W1 = "2026-03-16"
     ANCHOR_FN = "2026-03-09"
+    _today = datetime.now().date()
+    _days_to_next_mon = (7 - _today.weekday()) % 7 or 7
+    _next_mon = _today + timedelta(days=_days_to_next_mon)
+    _future_mon = _next_mon + timedelta(weeks=1)   # two Mondays from today
 
-    # Dr. Elrond — full time weekly, Mon–Fri 08:00–16:00
+    # Dr. Elrond — moved from standard hours to an early shift in January 2026
+    # Previous: Mon–Fri 09:00–17:00 (standard) | Current: Mon–Fri 08:00–16:00 (early shift)
+    crm.save_shift_pattern("Dr. Elrond", "weekly", "2026-01-05", [
+        (1, 0, "09:00", "17:00"), (1, 1, "09:00", "17:00"), (1, 2, "09:00", "17:00"),
+        (1, 3, "09:00", "17:00"), (1, 4, "09:00", "17:00"),
+    ], "admin")
     crm.save_shift_pattern("Dr. Elrond", "weekly", ANCHOR_W1, [
         (1, 0, "08:00", "16:00"), (1, 1, "08:00", "16:00"), (1, 2, "08:00", "16:00"),
         (1, 3, "08:00", "16:00"), (1, 4, "08:00", "16:00"),
     ], "admin")
 
-    # Nurse Pomfrey — full time fortnightly, rotating early/late
-    # Week 1: early shift 07:00–15:00 | Week 2: late shift 11:00–19:00
+    # Nurse Pomfrey — currently on a fortnightly early/late rotation; switching to fixed hours
+    # Current: fortnightly early (07:00–15:00) / late (11:00–19:00) rotation
+    # Future (from two Mondays' time): fixed Mon–Fri 08:00–16:00
     crm.save_shift_pattern("Nurse Pomfrey", "fortnightly", ANCHOR_FN, [
         (1, 0, "07:00", "15:00"), (1, 1, "07:00", "15:00"), (1, 2, "07:00", "15:00"),
         (1, 3, "07:00", "15:00"), (1, 4, "07:00", "15:00"),
         (2, 0, "11:00", "19:00"), (2, 1, "11:00", "19:00"), (2, 2, "11:00", "19:00"),
         (2, 3, "11:00", "19:00"), (2, 4, "11:00", "19:00"),
     ], "admin")
+    crm.save_shift_pattern("Nurse Pomfrey", "weekly", str(_future_mon), [
+        (1, 0, "08:00", "16:00"), (1, 1, "08:00", "16:00"), (1, 2, "08:00", "16:00"),
+        (1, 3, "08:00", "16:00"), (1, 4, "08:00", "16:00"),
+    ], "admin", slot='future')
 
-    # Maester Luwin — full time, compressed Mon–Thu 08:00–18:00 (4 × 10 h = 40 h)
+    # Maester Luwin — moved from standard hours to a compressed week in Oct 2025
+    # Previous: Mon–Fri 09:00–17:00 (standard) | Current: Mon–Thu 08:00–18:00 (compressed, 4 × 10 h)
+    crm.save_shift_pattern("Maester Luwin", "weekly", "2025-09-29", [
+        (1, 0, "09:00", "17:00"), (1, 1, "09:00", "17:00"), (1, 2, "09:00", "17:00"),
+        (1, 3, "09:00", "17:00"), (1, 4, "09:00", "17:00"),
+    ], "admin")
     crm.save_shift_pattern("Maester Luwin", "weekly", ANCHOR_W1, [
         (1, 0, "08:00", "18:00"), (1, 1, "08:00", "18:00"),
         (1, 2, "08:00", "18:00"), (1, 3, "08:00", "18:00"),
@@ -371,9 +390,6 @@ def generate_data():
     ], "admin")
 
     # Sample overrides — demonstrate the availability feature across all types
-    _today = datetime.now().date()
-    _days_to_next_mon = (7 - _today.weekday()) % 7 or 7
-    _next_mon = _today + timedelta(days=_days_to_next_mon)
 
     crm.add_availability_override(
         "Dr. Elrond", str(_next_mon),           "Annual Leave", 0, None, None,
