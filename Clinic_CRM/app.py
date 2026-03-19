@@ -1716,6 +1716,24 @@ elif st.session_state.page == "Admin Console":
                 }
                 st.caption(_type_info[nt_graph])
 
+                # ---- Pre-initialise bar test zone state so the preview renders
+                #      correctly before Step 2 code runs for newly added tests ----
+                if nt_graph == "bar":
+                    _preinit_bar_n = int(st.session_state.get('nt_bar_n_input', st.session_state.get('nt_bar_n', 2)))
+                    for _pbi in range(_preinit_bar_n):
+                        _ppfx = f'nt_bt_{_pbi}'
+                        if f'{_ppfx}_n_zones' not in st.session_state:
+                            st.session_state[f'{_ppfx}_n_zones']        = 2
+                            st.session_state[f'{_ppfx}_zone_from_0']    = 0.0
+                            st.session_state[f'{_ppfx}_zone_to_0']      = 5.0
+                            st.session_state[f'{_ppfx}_zone_color_0']   = '#D4EDDA'
+                            st.session_state[f'{_ppfx}_zone_transp_0']  = False
+                            st.session_state[f'{_ppfx}_zone_label_0']   = ''
+                            st.session_state[f'{_ppfx}_zone_to_1']      = 15.0
+                            st.session_state[f'{_ppfx}_zone_color_1']   = '#FFCCCB'
+                            st.session_state[f'{_ppfx}_zone_transp_1']  = False
+                            st.session_state[f'{_ppfx}_zone_label_1']   = ''
+
                 # ---- Live preview values ----
                 if nt_graph != "none":
                     st.markdown("**Live preview values** *(not saved)*")
