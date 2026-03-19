@@ -815,6 +815,7 @@ class ClinicCRM:
         """
         if isinstance(check_date, str):
             check_date = datetime.date.fromisoformat(check_date)
+        self._promote_future_patterns(username)
         self.connect()
         # Override takes precedence
         self.cursor.execute("""
@@ -835,7 +836,6 @@ class ClinicCRM:
                 'source': 'override'
             }
         # Fall back to shift pattern
-        self._promote_future_patterns(username)
         self.cursor.execute(
             "SELECT * FROM staff_shift_patterns WHERE username=? AND status='current' ORDER BY created_at DESC LIMIT 1",
             (username,)
