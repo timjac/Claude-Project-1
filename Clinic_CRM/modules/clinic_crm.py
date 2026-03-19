@@ -245,6 +245,13 @@ class ClinicCRM:
             );
         """)
 
+        # --- Migrate: add status column if not present ---
+        self.cursor.execute("PRAGMA table_info(staff_shift_patterns)")
+        _cols = [r['name'] for r in self.cursor.fetchall()]
+        if 'status' not in _cols:
+            self.cursor.execute("ALTER TABLE staff_shift_patterns ADD COLUMN status TEXT DEFAULT 'archived'")
+            self.cursor.execute("UPDATE staff_shift_patterns SET status = 'current' WHERE is_active = 1")
+
         # --- Table: Staff Shift Days ---
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS staff_shift_days (
@@ -716,21 +723,45 @@ class ClinicCRM:
     # STAFF ROTA
     # ==========================================
 
-    def save_shift_pattern(self, username, pattern_type, anchor_date, days_data, created_by):
-        """
-        Deactivate any existing active pattern and save a new one.
-        days_data: list of (week_number, day_of_week, start_time, end_time) tuples.
-        Only include working days — absent days are treated as days off.
-        """
+    def _promote_future_patterns(self, username):
+        """If a future pattern's anchor_date has arrived, promote it: future→current, current→previous, old previous→archived."""
+        today = str(datetime.date.today())
         self.connect()
         self.cursor.execute(
-            "UPDATE staff_shift_patterns SET is_active = 0 WHERE username = ? AND is_active = 1",
-            (username,)
+            "SELECT pattern_id FROM staff_shift_patterns WHERE username=? AND status='future' AND anchor_date<=?",
+            (username, today)
         )
+        future = self.cursor.fetchone()
+        if future:
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='archived' WHERE username=? AND status='previous'", (username,))
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='previous' WHERE username=? AND status='current'", (username,))
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='current' WHERE pattern_id=?", (future['pattern_id'],))
+            self.conn.commit()
+        self.close()
+
+    def save_shift_pattern(self, username, pattern_type, anchor_date, days_data, created_by, slot='current'):
+        """
+        Save a shift pattern for a staff member.
+        slot='current': replaces current immediately (current→previous, old previous→archived).
+        slot='future': schedules for a future date (replaces any existing future pattern).
+        days_data: list of (week_number, day_of_week, start_time, end_time) tuples.
+        """
+        self.connect()
+        if slot == 'current':
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='archived' WHERE username=? AND status='previous'", (username,))
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='previous' WHERE username=? AND status='current'", (username,))
+        elif slot == 'future':
+            self.cursor.execute(
+                "UPDATE staff_shift_patterns SET status='archived' WHERE username=? AND status='future'", (username,))
         self.cursor.execute("""
-            INSERT INTO staff_shift_patterns (username, pattern_type, anchor_date, created_by)
-            VALUES (?, ?, ?, ?)
-        """, (username, pattern_type, str(anchor_date), created_by))
+            INSERT INTO staff_shift_patterns (username, pattern_type, anchor_date, status, created_by)
+            VALUES (?, ?, ?, ?, ?)
+        """, (username, pattern_type, str(anchor_date), slot, created_by))
         pattern_id = self.cursor.lastrowid
         for week_num, day_of_week, start_time, end_time in days_data:
             self.cursor.execute("""
@@ -741,26 +772,39 @@ class ClinicCRM:
         self.close()
         return pattern_id
 
-    def get_shift_pattern(self, username):
-        """Returns (pattern_dict, [shift_day_dicts]) for the active pattern, or (None, [])."""
+    def cancel_future_pattern(self, username):
+        """Archive the pending future pattern, leaving current unchanged."""
         self.connect()
-        self.cursor.execute("""
-            SELECT * FROM staff_shift_patterns
-            WHERE username = ? AND is_active = 1
-            ORDER BY created_at DESC LIMIT 1
-        """, (username,))
-        pattern = self.cursor.fetchone()
-        if not pattern:
-            self.close()
-            return None, []
-        self.cursor.execute("""
-            SELECT week_number, day_of_week, start_time, end_time
-            FROM staff_shift_days WHERE pattern_id = ?
-            ORDER BY week_number, day_of_week
-        """, (pattern['pattern_id'],))
-        days = [dict(d) for d in self.cursor.fetchall()]
+        self.cursor.execute(
+            "UPDATE staff_shift_patterns SET status='archived' WHERE username=? AND status='future'", (username,))
+        self.conn.commit()
         self.close()
-        return dict(pattern), days
+
+    def get_shift_pattern(self, username):
+        """
+        Returns {'current': (pattern_dict, [days]), 'future': (pattern_dict, [days]), 'previous': (pattern_dict, [days])}.
+        Each value is (None, []) if that slot is empty.
+        Auto-promotes any due future patterns before reading.
+        """
+        self._promote_future_patterns(username)
+        self.connect()
+        result = {}
+        for slot in ('current', 'future', 'previous'):
+            self.cursor.execute(
+                "SELECT * FROM staff_shift_patterns WHERE username=? AND status=? ORDER BY created_at DESC LIMIT 1",
+                (username, slot)
+            )
+            pattern = self.cursor.fetchone()
+            if pattern:
+                self.cursor.execute(
+                    "SELECT week_number, day_of_week, start_time, end_time FROM staff_shift_days WHERE pattern_id=? ORDER BY week_number, day_of_week",
+                    (pattern['pattern_id'],)
+                )
+                result[slot] = (dict(pattern), [dict(d) for d in self.cursor.fetchall()])
+            else:
+                result[slot] = (None, [])
+        self.close()
+        return result
 
     def get_staff_availability(self, username, check_date):
         """
@@ -791,11 +835,11 @@ class ClinicCRM:
                 'source': 'override'
             }
         # Fall back to shift pattern
-        self.cursor.execute("""
-            SELECT * FROM staff_shift_patterns
-            WHERE username = ? AND is_active = 1
-            ORDER BY created_at DESC LIMIT 1
-        """, (username,))
+        self._promote_future_patterns(username)
+        self.cursor.execute(
+            "SELECT * FROM staff_shift_patterns WHERE username=? AND status='current' ORDER BY created_at DESC LIMIT 1",
+            (username,)
+        )
         pattern = self.cursor.fetchone()
         if not pattern:
             self.close()
@@ -864,7 +908,7 @@ class ClinicCRM:
         """
         Bulk availability computation for multiple staff over a date range.
         Returns {username: {date_str: {is_working, start_time, end_time, override_type, source}}}.
-        Uses 3 queries total regardless of staff count or date range length.
+        Handles future patterns (a pattern whose anchor_date falls within the range).
         """
         if not usernames:
             return {}
@@ -875,27 +919,39 @@ class ClinicCRM:
 
         self.connect()
         ph = ','.join('?' for _ in usernames)
+        today_str = str(datetime.date.today())
 
-        # 1. Active patterns for these users
+        # Promote any due future patterns first
         self.cursor.execute(
-            f"SELECT * FROM staff_shift_patterns WHERE username IN ({ph}) AND is_active = 1",
+            f"SELECT DISTINCT username FROM staff_shift_patterns WHERE username IN ({ph}) AND status='future' AND anchor_date<=?",
+            list(usernames) + [today_str]
+        )
+        to_promote = [r['username'] for r in self.cursor.fetchall()]
+        self.close()
+        for u in to_promote:
+            self._promote_future_patterns(u)
+        self.connect()
+
+        # Load current AND future patterns (future ones may apply to future dates in the range)
+        self.cursor.execute(
+            f"SELECT * FROM staff_shift_patterns WHERE username IN ({ph}) AND status IN ('current','future')",
             list(usernames)
         )
-        patterns = {row['username']: dict(row) for row in self.cursor.fetchall()}
+        patterns_by_user = {}
+        for row in self.cursor.fetchall():
+            patterns_by_user.setdefault(row['username'], {})[row['status']] = dict(row)
 
-        # 2. Shift days for those patterns
-        pattern_ids = [p['pattern_id'] for p in patterns.values()]
+        # Load shift days for all loaded patterns
+        all_pattern_ids = [p['pattern_id'] for pu in patterns_by_user.values() for p in pu.values()]
         shift_days_by_pattern = {}
-        if pattern_ids:
-            ph2 = ','.join('?' for _ in pattern_ids)
+        if all_pattern_ids:
+            ph2 = ','.join('?' for _ in all_pattern_ids)
             self.cursor.execute(
-                f"SELECT * FROM staff_shift_days WHERE pattern_id IN ({ph2})", pattern_ids
-            )
+                f"SELECT * FROM staff_shift_days WHERE pattern_id IN ({ph2})", all_pattern_ids)
             for row in self.cursor.fetchall():
-                pid = row['pattern_id']
-                shift_days_by_pattern.setdefault(pid, {})[(row['week_number'], row['day_of_week'])] = dict(row)
+                shift_days_by_pattern.setdefault(row['pattern_id'], {})[(row['week_number'], row['day_of_week'])] = dict(row)
 
-        # 3. All overrides in the date range for these users
+        # Load overrides in range
         self.cursor.execute(
             f"""SELECT * FROM staff_availability_overrides
                 WHERE username IN ({ph}) AND override_date >= ? AND override_date <= ?
@@ -904,11 +960,24 @@ class ClinicCRM:
         )
         overrides = {}
         for row in self.cursor.fetchall():
-            key = (row['username'], row['override_date'])
-            overrides.setdefault(key, dict(row))  # most recent per user+date wins
+            overrides.setdefault((row['username'], row['override_date']), dict(row))
         self.close()
 
-        # Compute availability matrix in Python
+        def _apply_pattern(pattern, check_date):
+            anchor = datetime.date.fromisoformat(pattern['anchor_date'])
+            days_since = (check_date - anchor).days
+            if days_since < 0:
+                return {'is_working': None, 'source': 'before_start'}
+            period = 7 if pattern['pattern_type'] == 'weekly' else 14
+            day_in_period = days_since % period
+            wk = (day_in_period // 7) + 1
+            dow = day_in_period % 7
+            shift = shift_days_by_pattern.get(pattern['pattern_id'], {}).get((wk, dow))
+            if shift:
+                return {'is_working': True, 'start_time': shift['start_time'],
+                        'end_time': shift['end_time'], 'source': 'pattern'}
+            return {'is_working': False, 'source': 'pattern'}
+
         result = {u: {} for u in usernames}
         current = from_date
         while current <= to_date:
@@ -922,25 +991,16 @@ class ClinicCRM:
                         'notes': ov['notes'], 'source': 'override'
                     }
                     continue
-                pattern = patterns.get(username)
-                if not pattern:
-                    result[username][ds] = {'is_working': None, 'source': 'none'}
-                    continue
-                anchor = datetime.date.fromisoformat(pattern['anchor_date'])
-                days_since = (current - anchor).days
-                if days_since < 0:
-                    result[username][ds] = {'is_working': None, 'source': 'before_start'}
-                    continue
-                period = 7 if pattern['pattern_type'] == 'weekly' else 14
-                day_in_period = days_since % period
-                wk = (day_in_period // 7) + 1
-                dow = day_in_period % 7
-                shift = shift_days_by_pattern.get(pattern['pattern_id'], {}).get((wk, dow))
-                if shift:
-                    result[username][ds] = {'is_working': True, 'start_time': shift['start_time'],
-                                            'end_time': shift['end_time'], 'source': 'pattern'}
+                user_patterns = patterns_by_user.get(username, {})
+                # Use future pattern if its anchor_date has arrived for this date
+                future_pat = user_patterns.get('future')
+                current_pat = user_patterns.get('current')
+                if future_pat and current >= datetime.date.fromisoformat(future_pat['anchor_date']):
+                    result[username][ds] = _apply_pattern(future_pat, current)
+                elif current_pat:
+                    result[username][ds] = _apply_pattern(current_pat, current)
                 else:
-                    result[username][ds] = {'is_working': False, 'source': 'pattern'}
+                    result[username][ds] = {'is_working': None, 'source': 'none'}
             current += datetime.timedelta(days=1)
         return result
 
