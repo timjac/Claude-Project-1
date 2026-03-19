@@ -9,9 +9,7 @@ from modules.charts import (
     render_dot,
     render_bars,
     render_text,
-    create_trend_chart,
-    create_bp_trend_chart,
-    create_multi_trend_chart,
+    render_trend_chart,
 )
 
 # ==========================================
@@ -262,6 +260,43 @@ def _init_pdf(theme_config, footer_text=""):
     return pdf
 
 
+def _build_trend_series(group_data, order=None):
+    """Group rows by test name into series for render_trend_chart.
+
+    order: optional list of test names defining series order;
+           any names not listed are appended alphabetically.
+    Each row: (date_str, test_name, value, ...)
+    """
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for row in group_data:
+        date_str = row[0].split()[0]
+        name     = row[1]
+        val      = row[2]
+        if val is not None:
+            try:
+                buckets[name].append((date_str, float(val)))
+            except (ValueError, TypeError):
+                pass
+
+    names = list(order or [])
+    for n in sorted(buckets):
+        if n not in names:
+            names.append(n)
+
+    series = []
+    for name in names:
+        if name not in buckets:
+            continue
+        pts = sorted(set(buckets[name]), key=lambda x: x[0])
+        series.append({
+            "name":   name,
+            "dates":  [datetime.strptime(p[0], "%Y-%m-%d") for p in pts],
+            "values": [p[1] for p in pts],
+        })
+    return series
+
+
 def _resolve_group_render_data(group_name, group_data, note_overrides=None):
     """Resolve chart images, display values, and note text for one test group.
 
@@ -298,13 +333,17 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
     if graph_type == 'none':
         display_target = "N/A"
         img_gauge = render_text(val, unit)
-        if trend_chart_type == 'line' and len(group_data) > 1:
-            img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
+        if len(group_data) > 1:
+            img_trend = render_trend_chart(
+                _build_trend_series(group_data),
+                trend_config=trend_config_parsed)
 
     elif graph_type == 'gauge':
         img_gauge = render_gauge(val, config, test_name, unit)
-        if trend_chart_type == 'line' and len(group_data) > 1:
-            img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
+        if len(group_data) > 1:
+            img_trend = render_trend_chart(
+                _build_trend_series(group_data),
+                trend_config=trend_config_parsed)
 
     elif graph_type == 'dot':
         values_dict = {}
@@ -328,23 +367,11 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
         dot_vals = [str(values_dict.get(d["test_name"], "?")) for d in dots_cfg
                     if d["test_name"] in values_dict]
         display_val = "/".join(dot_vals) if dot_vals else str(val)
-        _dot_names = [d["test_name"] for d in dots_cfg if d.get("test_name")]
-        if len(_dot_names) >= 2:
-            sys_data = sorted([t for t in group_data if t[1] == _dot_names[0]],
-                               key=lambda x: x[0], reverse=True)
-            dia_data = sorted([t for t in group_data if t[1] == _dot_names[1]],
-                               key=lambda x: x[0], reverse=True)
-        else:
-            sys_data = sorted([t for t in group_data if "Systolic" in t[1]],
-                               key=lambda x: x[0], reverse=True)
-            dia_data = sorted([t for t in group_data if "Diastolic" in t[1]],
-                               key=lambda x: x[0], reverse=True)
-        if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
-            img_trend = create_bp_trend_chart(sys_data, dia_data, primary_config,
-                                               trend_config=trend_config_parsed)
-        elif trend_chart_type == 'line' and len(group_data) > 1:
-            img_trend = create_trend_chart(group_data, test_name, unit,
-                                            trend_config=trend_config_parsed)
+        _dot_order = [d["test_name"] for d in dots_cfg if d.get("test_name")]
+        if len(group_data) > 1:
+            img_trend = render_trend_chart(
+                _build_trend_series(group_data, order=_dot_order),
+                trend_config=trend_config_parsed)
 
     elif graph_type == 'bar':
         panel_items = []
@@ -363,20 +390,17 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
         panel_items.sort(key=lambda x: x["name"])
         img_gauge = render_bars(panel_items)
         display_val = "\n".join([
-            f"{item['name'].replace(f' {group_name}', '').replace('Cholesterol', '').strip()}: "
-            f"{item['value']} {item['unit']}"
+            f"{item['name']}: {item['value']} {item['unit']}"
             for item in panel_items
         ])
         display_unit = ""
         display_target = "See Chart"
         dynamic_chart_h = max(42, 20 + (len(panel_items) * 10))
-        if trend_chart_type == 'multi_trend':
-            unique_dates = list(set([t[0].split()[0] for t in group_data]))
-            if len(unique_dates) > 1:
-                img_trend = create_multi_trend_chart(group_data, trend_config=trend_config_parsed)
-        elif trend_chart_type == 'line' and len(group_data) > 1:
-            img_trend = create_trend_chart(group_data, test_name, unit,
-                                            trend_config=trend_config_parsed)
+        _bar_order = [item["name"] for item in panel_items]
+        if len(group_data) > 1:
+            img_trend = render_trend_chart(
+                _build_trend_series(group_data, order=_bar_order),
+                trend_config=trend_config_parsed)
 
     # Note aggregation — apply overrides if provided, otherwise use raw data notes
     latest_date = group_data[0][0]

@@ -318,15 +318,15 @@ class ClinicCRM:
         # --- Seed Test Groups (must be seeded before test_definitions) ---
         # Tuples: (group_name, chart_type, trend_chart_type, description)
         test_group_seeds = [
-            ("Weight",                  "none",  "line",        "Body mass"),
-            ("Height",                  "none",  "line",        "Stature"),
-            ("BMI",                     "gauge", "line",        "Body Mass Index"),
-            ("Blood Pressure",          "dot",   "bp_trend",    "Systolic and diastolic readings"),
-            ("Resting Heart Rate",      "gauge", "line",        "Pulse rate"),
-            ("Cholesterol",             "bar",   "multi_trend", "Lipid panel"),
-            ("Blood Glucose (Fasting)", "gauge", "line",        "Fasting blood sugar"),
-            ("O2 Saturation",           "gauge", "line",        "Oxygen saturation"),
-            ("Temperature",             "gauge", "line",        "Body temperature"),
+            ("Weight",                  "none",  "trend", "Body mass"),
+            ("Height",                  "none",  "trend", "Stature"),
+            ("BMI",                     "gauge", "trend", "Body Mass Index"),
+            ("Blood Pressure",          "dot",   "trend", "Systolic and diastolic readings"),
+            ("Resting Heart Rate",      "gauge", "trend", "Pulse rate"),
+            ("Cholesterol",             "bar",   "trend", "Lipid panel"),
+            ("Blood Glucose (Fasting)", "gauge", "trend", "Fasting blood sugar"),
+            ("O2 Saturation",           "gauge", "trend", "Oxygen saturation"),
+            ("Temperature",             "gauge", "trend", "Body temperature"),
         ]
         self.cursor.executemany("""
             INSERT OR IGNORE INTO test_groups (group_name, chart_type, trend_chart_type, description)

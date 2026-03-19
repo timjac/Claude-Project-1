@@ -379,131 +379,98 @@ def render_text(value, unit):
 
 
 # ==========================================
-# 4. TREND CHARTS (Unchanged)
+# 4. TREND CHART
 # ==========================================
 
-def create_trend_chart(history, title, unit="", trend_config=None):
-    """Standard Line Trend Chart"""
-    tc = trend_config or {}
-    line_colour = tc.get("line_colour", COLOR_PRIMARY)
+def render_trend_chart(series, trend_config=None):
+    """Unified trend chart — replaces create_trend_chart, create_bp_trend_chart,
+    and create_multi_trend_chart.
+
+    series: list of {"name": str, "dates": [datetime, ...], "values": [float, ...]}
+            ordered as desired (first entry = primary series).
+
+    trend_config keys:
+        line_style   : "solid" | "dashed"
+        show_markers : bool
+        line_colours : [hex, ...]  one per series; cycles if fewer than series count
+        fill_area    : bool  shade under (1 series) or between (2 series)
+        show_legend  : bool  label each line by its name
+        zones        : [{"from": float, "to": float, "colour": hex, "label": str}, ...]
+    """
+    if not series:
+        return None
+
+    series = [s for s in series if s.get("dates") and s.get("values")]
+    if not series:
+        return None
+
+    all_dates = sorted(set(d for s in series for d in s["dates"]))
+    if len(all_dates) < 2:
+        return None
+
+    tc           = trend_config or {}
+    n            = len(series)
     line_style   = "--" if tc.get("line_style", "solid") == "dashed" else "-"
     show_markers = tc.get("show_markers", False)
-    marker = 'o' if show_markers else None
+    marker       = 'o' if show_markers else None
+    markersize   = 5   if show_markers else 0
+    fill_area    = tc.get("fill_area",   n <= 2)
+    show_legend  = tc.get("show_legend", n > 1)
+    zones        = tc.get("zones", [])
 
-    dates, values = [], []
-    history_sorted = sorted(history, key=lambda x: datetime.strptime(x[0], "%Y-%m-%d"))
-
-    for h in history_sorted:
-        dates.append(datetime.strptime(h[0], "%Y-%m-%d"))
-        try:
-            values.append(float(h[2]))
-        except (ValueError, TypeError):
-            values.append(0.0)
+    _defaults    = ['#003366', '#2E8B57', '#DC143C', '#FF8C00', '#8A2BE2']
+    # Back-compat: old single "line_colour" key maps to first slot
+    raw_colours  = tc.get("line_colours") or ([tc["line_colour"]] if tc.get("line_colour") else [])
 
     fig, ax = plt.subplots()
-    ax.plot(dates, values, marker=marker, linestyle=line_style, color=line_colour, lw=2, zorder=3)
 
-    if values:
-        bottom_val = min(values) * 0.9 if min(values) > 0 else 0
-        ax.fill_between(dates, values, bottom_val, color=line_colour, alpha=0.1, zorder=2)
-        ax.set_ylim(bottom=bottom_val)
+    # Horizontal zone bands
+    for zone in zones:
+        colour = zone.get("colour") or zone.get("color", COLOR_SAFE_BG)
+        if colour and colour != "transparent":
+            try:
+                ax.axhspan(float(zone["from"]), float(zone["to"]),
+                           color=colour, alpha=0.35, linewidth=0, zorder=0)
+            except (ValueError, KeyError):
+                pass
+
+    # Plot each series
+    for idx, s in enumerate(series):
+        colour = raw_colours[idx] if idx < len(raw_colours) else _defaults[idx % len(_defaults)]
+        ax.plot(s["dates"], s["values"],
+                marker=marker, markersize=markersize,
+                linestyle=line_style, color=colour, linewidth=2,
+                label=s["name"] if show_legend else None, zorder=3)
+
+    # Fill area
+    if fill_area:
+        if n == 1:
+            vals   = series[0]["values"]
+            dates  = series[0]["dates"]
+            colour = raw_colours[0] if raw_colours else _defaults[0]
+            floor  = min(vals) * 0.9 if min(vals) > 0 else 0
+            ax.fill_between(dates, vals, floor, color=colour, alpha=0.1, zorder=2)
+            ax.set_ylim(bottom=floor)
+        elif n == 2:
+            d0 = dict(zip(series[0]["dates"], series[0]["values"]))
+            d1 = dict(zip(series[1]["dates"], series[1]["values"]))
+            common = sorted(set(d0) & set(d1))
+            if common:
+                colour = raw_colours[0] if raw_colours else _defaults[0]
+                ax.fill_between(common,
+                                [d0[d] for d in common],
+                                [d1[d] for d in common],
+                                color=colour, alpha=0.1, zorder=2)
 
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=4))
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
     ax.tick_params(axis='both', which='both', labelbottom=False, labelleft=False)
 
-    if dates:
-        pad = timedelta(days=5)
-        ax.set_xlim(min(dates) - pad, max(dates) + pad)
+    pad = timedelta(days=5 if n == 1 else 8)
+    ax.set_xlim(min(all_dates) - pad, max(all_dates) + pad)
 
-    return _export(fig, ax, is_trend=True)
-
-
-def create_bp_trend_chart(sys_history, dia_history, config, trend_config=None):
-    """BP River Trend Chart (two separate history arrays)"""
-    if not sys_history or not dia_history:
-        return None
-
-    tc = trend_config or {}
-    line_style   = "--" if tc.get("line_style", "solid") == "dashed" else "-"
-    show_markers = tc.get("show_markers", False)
-    marker = 'o' if show_markers else None
-    markersize = 5 if show_markers else 0
-
-    sys_dict = {h[0].split()[0]: float(h[2]) for h in sys_history if h[2]}
-    dia_dict = {h[0].split()[0]: float(h[2]) for h in dia_history if h[2]}
-
-    common_dates = sorted(list(set(sys_dict.keys()) & set(dia_dict.keys())))
-    if len(common_dates) < 2:
-        return None
-
-    dates = [datetime.strptime(d, "%Y-%m-%d") for d in common_dates]
-    systolics = [sys_dict[d] for d in common_dates]
-    diastolics = [dia_dict[d] for d in common_dates]
-
-    fig, ax = plt.subplots()
-    ax.axhspan(60, 120, color=COLOR_SAFE_BG, alpha=0.4, linewidth=0, zorder=0)
-    ax.plot(dates, systolics, marker=marker, markersize=markersize, linestyle=line_style, color=COLOR_PRIMARY, linewidth=2, zorder=3)
-    ax.plot(dates, diastolics, marker=marker, markersize=markersize, linestyle=line_style, color=COLOR_PRIMARY, linewidth=2, zorder=3)
-    ax.fill_between(dates, diastolics, systolics, color=COLOR_PRIMARY, alpha=0.1, zorder=2)
-
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=4))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
-    ax.tick_params(axis='both', which='both', labelbottom=False, labelleft=False)
-
-    if dates:
-        pad = timedelta(days=5)
-        ax.set_xlim(min(dates) - pad, max(dates) + pad)
-
-    return _export(fig, ax, is_trend=True)
-
-
-def create_multi_trend_chart(group_data, trend_config=None):
-    """Multi-line trend chart for panels like Cholesterol"""
-    if not group_data:
-        return None
-
-    tc = trend_config or {}
-    line_style   = "--" if tc.get("line_style", "solid") == "dashed" else "-"
-    show_markers = tc.get("show_markers", False)
-    marker = 'o' if show_markers else None
-    markersize = 5 if show_markers else 0
-
-    raw_dates = sorted(list(set([t[0].split()[0] for t in group_data])))
-    test_names = sorted(list(set([t[1] for t in group_data])))
-
-    if len(raw_dates) < 2:
-        return None
-
-    dates = [datetime.strptime(d, "%Y-%m-%d") for d in raw_dates]
-    fig, ax = plt.subplots()
-
-    colors = ['#003366', '#2E8B57', '#DC143C', '#FF8C00', '#8A2BE2']
-
-    for idx, t_name in enumerate(test_names):
-        t_history = [t for t in group_data if t[1] == t_name]
-        val_dict = {t[0].split()[0]: float(t[2]) for t in t_history if t[2]}
-
-        t_dates, t_vals = [], []
-        for d in raw_dates:
-            if d in val_dict:
-                t_dates.append(datetime.strptime(d, "%Y-%m-%d"))
-                t_vals.append(val_dict[d])
-
-        if t_dates:
-            label_name = t_name.replace("Cholesterol", "").replace("Panel", "").strip()
-            if not label_name:
-                label_name = t_name
-            ax.plot(t_dates, t_vals, marker=marker, markersize=markersize, linestyle=line_style,
-                    linewidth=2, label=label_name, color=colors[idx % len(colors)])
-
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=4))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
-    ax.tick_params(axis='both', which='both', labelbottom=False, labelleft=False)
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=3, frameon=False, fontsize=8)
-
-    if dates:
-        pad = timedelta(days=8)
-        ax.set_xlim(min(dates) - pad, max(dates) + pad)
+    if show_legend:
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
+                  ncol=3, frameon=False, fontsize=8)
 
     return _export(fig, ax, is_trend=True)

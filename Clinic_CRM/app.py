@@ -1723,13 +1723,34 @@ elif st.session_state.page == "Admin Console":
                     ]
 
                     # Trend config from current session state
-                    _mk_key = ("nt_dot_show_markers" if _gt_prev == "dot"
-                               else "nt_bar_show_markers" if _gt_prev == "bar"
-                               else "nt_show_markers")
+                    _tc_n = (1 if _gt_prev in ("gauge", "none")
+                             else st.session_state.get("nt_n_dots", 2) if _gt_prev == "dot"
+                             else st.session_state.get("nt_bar_n", 2))
+                    _tc_colours = [st.session_state.get(f"nt_trend_colour_{_i}", "#003366")
+                                   for _i in range(_tc_n)]
+                    # Resolve trend zones for preview
+                    _tc_zones = []
+                    if _gt_prev in ("gauge", "dot"):
+                        if st.session_state.get("nt_trend_show_zones", False):
+                            _tc_zones = _zbuild("nt", st.session_state.get("nt_n_zones", 2))
+                    elif _gt_prev == "bar":
+                        _src = st.session_state.get("nt_trend_zones_source", "None")
+                        if _src == "Custom":
+                            _tc_zones = _zbuild("nt_tc", st.session_state.get("nt_tc_n_zones", 2))
+                        elif _src != "None":
+                            for _bi in range(st.session_state.get("nt_bar_n", 2)):
+                                _bpfx = f"nt_bt_{_bi}"
+                                _bn = st.session_state.get(f"{_bpfx}_name", "").strip() or f"Test {_bi+1}"
+                                if _bn == _src:
+                                    _tc_zones = _zbuild(_bpfx, st.session_state.get(f"{_bpfx}_n_zones", 2))
+                                    break
                     _prev_trend_cfg = json.dumps({
-                        "line_colour":  st.session_state.get("nt_trend_colour", "#003366"),
-                        "line_style":   "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
-                        "show_markers": bool(st.session_state.get(_mk_key, False))
+                        "line_colours":  _tc_colours,
+                        "line_style":    "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
+                        "show_markers":  bool(st.session_state.get("nt_show_markers", False)),
+                        "fill_area":     bool(st.session_state.get("nt_trend_fill", _tc_n <= 2)),
+                        "show_legend":   bool(st.session_state.get("nt_trend_legend", _tc_n > 1)) if _tc_n > 1 else False,
+                        "zones":         _tc_zones,
                     })
 
                     _prev_grp  = "Preview Group"
@@ -1750,7 +1771,7 @@ elif st.session_state.page == "Admin Console":
                                 _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
                                 _prev_note if _i == 0 else "", "Target Range",
                                 "gauge", _i+1, "Complete", _d, "Admin", "", _d, "Admin",
-                                "line", _prev_trend_cfg
+                                "trend", _prev_trend_cfg
                             ))
 
                     elif _gt_prev == "none":
@@ -1761,7 +1782,7 @@ elif st.session_state.page == "Admin Console":
                                 _d, _prev_grp, round(_pv * _m, 1), "units", _prev_grp, _cfg_s,
                                 _prev_note if _i == 0 else "", "Target Range",
                                 "none", _i+1, "Complete", _d, "Admin", "", _d, "Admin",
-                                "line", _prev_trend_cfg
+                                "trend", _prev_trend_cfg
                             ))
 
                     elif _gt_prev == "dot":
@@ -1793,7 +1814,7 @@ elif st.session_state.page == "Admin Console":
                                     _d, _dn, round(_pv * _m, 1), "units", _prev_grp, _dcfg,
                                     _prev_note if (_i == 0 and _di == 0) else "", "Target Range",
                                     "dot", _i*_nd + _di + 1, "Complete", _d, "Admin", "", _d, "Admin",
-                                    "bp_trend", _prev_trend_cfg
+                                    "trend", _prev_trend_cfg
                                 ))
 
                     elif _gt_prev == "bar":
@@ -1818,7 +1839,7 @@ elif st.session_state.page == "Admin Console":
                                     _prev_note if (_i == 0 and _bi == 0) else "",
                                     st.session_state.get(f'{_bpfx}_target', ''),
                                     "bar", _i*_bar_n + _bi + 1, "Complete", _d, "Admin", "", _d, "Admin",
-                                    "multi_trend", _prev_trend_cfg
+                                    "trend", _prev_trend_cfg
                                 ))
 
                     if _prev_tests:
@@ -1883,22 +1904,6 @@ elif st.session_state.page == "Admin Console":
                 _gpv_col.number_input("Preview value", key='nt_preview_val', step=0.1,
                                       help="Sets the sample value shown in the live preview only — not saved")
 
-                st.divider()
-                st.markdown("##### Trend Chart")
-                st.caption("Shown automatically when the patient has more than one result on record.")
-                _tc1, _tc2 = st.columns(2)
-                with _tc1:
-                    _nt_trend_colour_hex = _palette_select(
-                        "Line colour", "nt_trend_colour",
-                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
-                    )
-                    st.session_state["nt_trend_colour"] = _nt_trend_colour_hex
-                _nt_trend_style = _tc2.radio("Line style", ["Solid", "Dashed"],
-                                              index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                              key="nt_trend_style_radio", horizontal=True)
-                st.session_state["nt_trend_style"] = _nt_trend_style
-                _nt_show_markers = st.checkbox("Mark each data point", key="nt_show_markers",
-                                                value=st.session_state.get("nt_show_markers", False))
 
             elif nt_graph == "dot":
                 # Initialize dot state if missing
@@ -1977,23 +1982,6 @@ elif st.session_state.page == "Admin Console":
                     _dlbl = st.session_state.get(f'nt_dot_name_{_di}') or f"Dot {_di+1}"
                     _dpv_cols[_di].number_input(_dlbl, key=f'nt_preview_val_{_di}', step=0.1)
 
-                st.divider()
-                st.markdown("##### Trend Chart")
-                st.caption("Shown automatically when the patient has more than one result on record. Each dot becomes a separate line.")
-                _dtc1, _dtc2 = st.columns(2)
-                with _dtc1:
-                    _nt_dot_trend_colour_hex = _palette_select(
-                        "Line colour", "nt_trend_colour",
-                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
-                    )
-                    st.session_state["nt_trend_colour"] = _nt_dot_trend_colour_hex
-                _nt_dot_trend_style = _dtc2.radio("Line style", ["Solid", "Dashed"],
-                                                index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                key="nt_dot_trend_style_radio", horizontal=True)
-                st.session_state["nt_trend_style"] = _nt_dot_trend_style
-                _nt_dot_show_markers = st.checkbox("Mark each data point", key="nt_dot_show_markers",
-                                                    value=st.session_state.get("nt_show_markers", False))
-                st.session_state["nt_show_markers"] = _nt_dot_show_markers
 
             elif nt_graph == "bar":
                 st.markdown("##### Snapshot Chart")
@@ -2090,45 +2078,113 @@ elif st.session_state.page == "Admin Console":
                         icon="⚠️"
                     )
 
-                st.divider()
-                st.markdown("##### Trend Chart")
-                st.caption("Shown automatically when the patient has more than one result on record. Each component test becomes a separate line.")
-                _btc1, _btc2 = st.columns(2)
-                with _btc1:
-                    _nt_bar_trend_colour_hex = _palette_select(
-                        "Line colour", "nt_trend_colour",
-                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
-                    )
-                    st.session_state["nt_trend_colour"] = _nt_bar_trend_colour_hex
-                _nt_bar_trend_style = _btc2.radio("Line style", ["Solid", "Dashed"],
-                                                index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                key="nt_bar_trend_style_radio", horizontal=True)
-                st.session_state["nt_trend_style"] = _nt_bar_trend_style
-                _nt_bar_show_markers = st.checkbox("Mark each data point", key="nt_bar_show_markers",
-                                                    value=st.session_state.get("nt_show_markers", False))
-                st.session_state["nt_show_markers"] = _nt_bar_show_markers
 
             elif nt_graph == "none":
                 st.markdown("##### Snapshot Chart")
                 st.caption("No chart is rendered — the latest value is displayed as large text only. There is nothing to configure here.")
 
-                st.divider()
-                st.markdown("##### Trend Chart")
-                st.caption("Shown automatically when the patient has more than one result on record.")
-                _tc1n, _tc2n = st.columns(2)
-                with _tc1n:
-                    _nt_none_trend_colour_hex = _palette_select(
-                        "Line colour", "nt_trend_colour",
-                        st.session_state.get("nt_trend_colour", "#003366"), PALETTE
-                    )
-                    st.session_state["nt_trend_colour"] = _nt_none_trend_colour_hex
-                _nt_none_trend_style = _tc2n.radio("Line style", ["Solid", "Dashed"],
-                                                    index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
-                                                    key="nt_none_trend_style_radio", horizontal=True)
-                st.session_state["nt_trend_style"] = _nt_none_trend_style
-                _nt_none_show_markers = st.checkbox("Mark each data point", key="nt_none_show_markers",
-                                                     value=st.session_state.get("nt_show_markers", False))
-                st.session_state["nt_show_markers"] = _nt_none_show_markers
+            # ---- TREND CHART (unified for all chart types) ----
+            st.divider()
+            st.markdown("##### Trend Chart")
+            st.caption("Shown automatically when the patient has more than one result on record.")
+
+            # Number of series depends on chart type
+            _tc_n_series = (1 if nt_graph in ("gauge", "none")
+                            else st.session_state.get("nt_n_dots", 2) if nt_graph == "dot"
+                            else st.session_state.get("nt_bar_n", 2))
+
+            # Per-series colour pickers (in rows of up to 4)
+            _tc_row_size = 4
+            for _tc_row_start in range(0, _tc_n_series, _tc_row_size):
+                _tc_row_end = min(_tc_row_start + _tc_row_size, _tc_n_series)
+                _tc_cols = st.columns(_tc_row_end - _tc_row_start)
+                for _tc_j, _tc_i in enumerate(range(_tc_row_start, _tc_row_end)):
+                    if nt_graph == "dot":
+                        _tc_lbl = st.session_state.get(f"nt_dot_name_{_tc_i}", "").strip() or f"Series {_tc_i+1}"
+                    elif nt_graph == "bar":
+                        _tc_lbl = st.session_state.get(f"nt_bt_{_tc_i}_name", "").strip() or f"Test {_tc_i+1}"
+                    else:
+                        _tc_lbl = "Line colour"
+                    with _tc_cols[_tc_j]:
+                        _tc_hex = _palette_select(
+                            _tc_lbl, f"nt_trend_colour_{_tc_i}",
+                            st.session_state.get(f"nt_trend_colour_{_tc_i}", "#003366"), PALETTE
+                        )
+                        st.session_state[f"nt_trend_colour_{_tc_i}"] = _tc_hex
+
+            _tc_c1, _tc_c2, _tc_c3, _tc_c4 = st.columns(4)
+            _nt_trend_style = _tc_c1.radio(
+                "Line style", ["Solid", "Dashed"],
+                index=0 if st.session_state.get("nt_trend_style", "Solid") == "Solid" else 1,
+                key="nt_trend_style_radio", horizontal=True
+            )
+            st.session_state["nt_trend_style"] = _nt_trend_style
+            _nt_show_markers = _tc_c2.checkbox(
+                "Mark data points", key="nt_show_markers",
+                value=st.session_state.get("nt_show_markers", False)
+            )
+            _nt_fill = _tc_c3.checkbox(
+                "Fill area", key="nt_trend_fill",
+                value=st.session_state.get("nt_trend_fill", _tc_n_series <= 2)
+            )
+            if _tc_n_series > 1:
+                _tc_c4.checkbox(
+                    "Show legend", key="nt_trend_legend",
+                    value=st.session_state.get("nt_trend_legend", True)
+                )
+
+            # Zone bands on trend chart
+            if nt_graph in ("gauge", "dot"):
+                st.checkbox(
+                    "Show snapshot zones on trend chart",
+                    key="nt_trend_show_zones",
+                    value=st.session_state.get("nt_trend_show_zones", False),
+                    help="Overlay the zone colour bands from the snapshot chart onto the trend chart axis."
+                )
+            elif nt_graph == "bar":
+                st.info(
+                    "Each test in this group has its own zone scale, so zones cannot be applied "
+                    "automatically to the shared trend axis. Choose a reference below.",
+                    icon="ℹ️"
+                )
+                _bar_test_names = [
+                    st.session_state.get(f"nt_bt_{_bi}_name", "").strip() or f"Test {_bi+1}"
+                    for _bi in range(st.session_state.get("nt_bar_n", 2))
+                ]
+                _zone_options = ["None"] + _bar_test_names + ["Custom"]
+                _cur_src = st.session_state.get("nt_trend_zones_source", "None")
+                _zone_src_idx = _zone_options.index(_cur_src) if _cur_src in _zone_options else 0
+                _zones_source = st.selectbox(
+                    "Zone bands — use zones from:",
+                    _zone_options,
+                    index=_zone_src_idx,
+                    key="nt_trend_zones_source_sel"
+                )
+                st.session_state["nt_trend_zones_source"] = _zones_source
+                if _zones_source == "Custom":
+                    if "nt_tc_n_zones" not in st.session_state:
+                        st.session_state["nt_tc_n_zones"]        = 2
+                        st.session_state["nt_tc_zone_from_0"]    = 0.0
+                        st.session_state["nt_tc_zone_to_0"]      = 5.0
+                        st.session_state["nt_tc_zone_color_0"]   = "#D4EDDA"
+                        st.session_state["nt_tc_zone_transp_0"]  = False
+                        st.session_state["nt_tc_zone_label_0"]   = ""
+                        st.session_state["nt_tc_zone_to_1"]      = 15.0
+                        st.session_state["nt_tc_zone_color_1"]   = "#FFCCCB"
+                        st.session_state["nt_tc_zone_transp_1"]  = False
+                        st.session_state["nt_tc_zone_label_1"]   = ""
+                    _tc_nz = st.session_state.get("nt_tc_n_zones", 2)
+                    st.markdown("**Custom zones** (Zone 1 sets the axis start)")
+                    _zrender("nt_tc", _tc_nz, rm_key_sfx="_tc")
+                    if st.button("+ Add Zone", key="nt_tc_add_zone"):
+                        _n = st.session_state.get("nt_tc_n_zones", 2)
+                        _prev_to = float(st.session_state.get(f"nt_tc_zone_to_{_n-1}", 0.0))
+                        st.session_state[f"nt_tc_zone_to_{_n}"]     = _prev_to + 10.0
+                        st.session_state[f"nt_tc_zone_color_{_n}"]  = "#D4EDDA"
+                        st.session_state[f"nt_tc_zone_transp_{_n}"] = False
+                        st.session_state[f"nt_tc_zone_label_{_n}"]  = ""
+                        st.session_state["nt_tc_n_zones"] = _n + 1
+                        st.rerun()
 
             # ---- STEP 3: Metadata & Save (inside a form) ----
             _step3_label = "#### Step 3 — Metadata (applies to the whole group)" if nt_graph in ("dot", "bar") else "#### Step 3 — Metadata"
@@ -2150,7 +2206,8 @@ elif st.session_state.page == "Admin Console":
 
                         if _gt == "none":
                             _cfg = {"graph_type": "none"}
-                            _trend = "line"
+                            _trend = "trend"
+                            _dots = []
                             _defs = [(nt_panel_name.strip(),
                                       nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
 
@@ -2167,7 +2224,8 @@ elif st.session_state.page == "Admin Console":
                                 "axis_max": _ax_max,
                                 "zones": _zones
                             }
-                            _trend = "line"
+                            _trend = "trend"
+                            _dots = []
                             _defs = [(nt_panel_name.strip(),
                                       nt_unit.strip(), nt_target.strip(), json.dumps(_cfg))]
 
@@ -2201,7 +2259,7 @@ elif st.session_state.page == "Admin Console":
                                 "axis_max": _ax_max,
                                 "zones": _zones
                             }
-                            _trend = "bp_trend"
+                            _trend = "trend"
                             _defs = []
                             for _di, dot in enumerate(_dots):
                                 _t_name = dot["test_name"].strip()
@@ -2210,7 +2268,8 @@ elif st.session_state.page == "Admin Console":
                                               nt_unit.strip(), nt_target.strip(), _t_cfg))
 
                         elif _gt == "bar":
-                            _trend = "multi_trend"
+                            _trend = "trend"
+                            _dots = []
                             _defs = []
                             for _bi in range(st.session_state.get('nt_bar_n', 2)):
                                 _bpfx = f'nt_bt_{_bi}'
@@ -2234,10 +2293,35 @@ elif st.session_state.page == "Admin Console":
                         if not _defs:
                             st.warning("No valid test definitions to save.")
                         else:
+                            # Resolve series count for trend config
+                            _sv_n = (1 if _gt in ("gauge", "none")
+                                     else len([d for d in _dots if d.get("test_name","").strip()]) if _gt == "dot"
+                                     else st.session_state.get("nt_bar_n", 2))
+                            _sv_colours = [st.session_state.get(f"nt_trend_colour_{_i}", "#003366")
+                                           for _i in range(_sv_n)]
+                            # Resolve zones for trend chart
+                            _sv_zones = []
+                            if _gt in ("gauge", "dot"):
+                                if st.session_state.get("nt_trend_show_zones", False):
+                                    _sv_zones = _zbuild("nt", st.session_state.get("nt_n_zones", 2))
+                            elif _gt == "bar":
+                                _sv_src = st.session_state.get("nt_trend_zones_source", "None")
+                                if _sv_src == "Custom":
+                                    _sv_zones = _zbuild("nt_tc", st.session_state.get("nt_tc_n_zones", 2))
+                                elif _sv_src != "None":
+                                    for _bi in range(st.session_state.get("nt_bar_n", 2)):
+                                        _bpfx = f"nt_bt_{_bi}"
+                                        _bn = st.session_state.get(f"{_bpfx}_name", "").strip() or f"Test {_bi+1}"
+                                        if _bn == _sv_src:
+                                            _sv_zones = _zbuild(_bpfx, st.session_state.get(f"{_bpfx}_n_zones", 2))
+                                            break
                             _trend_cfg = json.dumps({
-                                "line_colour": st.session_state.get("nt_trend_colour", "#003366"),
-                                "line_style": "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
-                                "show_markers": bool(st.session_state.get("nt_show_markers", False))
+                                "line_colours": _sv_colours,
+                                "line_style":   "dashed" if st.session_state.get("nt_trend_style", "Solid") == "Dashed" else "solid",
+                                "show_markers": bool(st.session_state.get("nt_show_markers", False)),
+                                "fill_area":    bool(st.session_state.get("nt_trend_fill", _sv_n <= 2)),
+                                "show_legend":  bool(st.session_state.get("nt_trend_legend", True)) if _sv_n > 1 else False,
+                                "zones":        _sv_zones,
                             })
                             crm.connect()
                             try:
