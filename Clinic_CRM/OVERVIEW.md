@@ -15,6 +15,16 @@ This triggers the following chain:
 
 The app is then accessible at `http://localhost:<dynamic-port>`.
 
+**Browser flags applied at launch:**
+
+| Flag | Browser | Purpose |
+|---|---|---|
+| `--app=<url>` | Chrome & Edge | Frameless app window (no address bar) |
+| `--incognito` / `--inprivate` | Chrome / Edge | Prevents password-save prompts; no profile data persists between sessions |
+| `--disable-download-shelf` | Chrome & Edge | Suppresses the download notification bar when a PDF report is saved |
+
+**Known launcher limitation:** closing the browser window does not stop the Streamlit server — it continues running in the background until the user logs out via the in-app button or the process is terminated manually. A future improvement would monitor the browser process handle and terminate Streamlit automatically when the window closes.
+
 ---
 
 ## Authentication

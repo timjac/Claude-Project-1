@@ -29,9 +29,9 @@ def main():
     
     browser_cmd = None
     if os.path.exists(chrome_path):
-        browser_cmd = [chrome_path, f"--app={url}"]
+        browser_cmd = [chrome_path, f"--app={url}", "--incognito", "--disable-download-shelf"]
     elif os.path.exists(edge_path):
-        browser_cmd = [edge_path, f"--app={url}"]
+        browser_cmd = [edge_path, f"--app={url}", "--inprivate", "--disable-download-shelf"]
     else:
         # Fallback if paths fail (opens standard browser tab)
         webbrowser.open(url)
