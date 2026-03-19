@@ -167,7 +167,7 @@ def draw_test_block(pdf_obj, y_pos, title, val, unit, date, target, note="", img
         pdf_obj.set_font(font_fam, '', 8)
         pdf_obj.set_text_color(*hex_to_rgb(pdf_obj.theme['text_muted']))
         current_table_y = table_y + 6
-        for h_date, h_val in history[1:5]:
+        for h_date, h_val in history[1:10]:
             pdf_obj.set_xy(info_x + TEST_PAD_H, current_table_y)
             pdf_obj.cell(w=text_w * 0.5, h=4, text=h_date, align='L')
             pdf_obj.cell(w=text_w * 0.5, h=4, text=f"{h_val} {unit}".strip(), align='R')
