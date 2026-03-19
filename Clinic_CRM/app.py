@@ -1860,7 +1860,7 @@ elif st.session_state.page == "Admin Console":
                                         _ax_min + (_ax_max - _ax_min) * (0.4 + _di * 0.2)))
                             _dcfg = _primary_cfg if _di == 0 else _secondary_cfg
                             for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_di % len(_mults)])):
-                                _v = _pv if _i == 0 else round(_pv * _m, 1)
+                                _v = round(_pv, 1) if _i == 0 else round(_pv * _m, 1)
                                 _prev_tests.append((
                                     _d, _dn, _v, "units", _prev_grp, _dcfg,
                                     _prev_note if (_i == 0 and _di == 0) else "", "Target Range",
@@ -1884,7 +1884,7 @@ elif st.session_state.page == "Admin Console":
                                 "zones": _bt_zones
                             })
                             for _i, (_d, _m) in enumerate(zip(_prev_dates, _mults[_bi % len(_mults)])):
-                                _v = _pv if _i == 0 else round(_pv * _m, 1)
+                                _v = round(_pv, 1) if _i == 0 else round(_pv * _m, 1)
                                 _prev_tests.append((
                                     _d, _bt_name, _v,
                                     st.session_state.get(f'{_bpfx}_unit', ''), _prev_grp, _bt_cfg,
