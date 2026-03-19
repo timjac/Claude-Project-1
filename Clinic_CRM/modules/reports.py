@@ -399,6 +399,10 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
                 _rows = [f"{dn}: {_fmtv(_vals[dn])}" for dn in _dot_order if dn in _vals]
                 for _i, _row_val in enumerate(_rows):
                     history_data.append((_d if _i == 0 else "", _row_val))
+            # Drop current-visit continuation rows so history[1:5] starts at the second visit
+            if len(history_data) > 1:
+                _nxt = next((i for i in range(1, len(history_data)) if history_data[i][0] != ""), len(history_data))
+                history_data = history_data[:1] + history_data[_nxt:]
         else:
             dot_vals = [_fmtv(values_dict.get(d["test_name"])) for d in dots_cfg
                         if d["test_name"] in values_dict]
@@ -462,6 +466,10 @@ def _resolve_group_render_data(group_name, group_data, note_overrides=None):
             _rows = [(n, _fmtv_bar(_vals[n])) for n in _bar_order if n in _vals]
             for _i, (_n, _v) in enumerate(_rows):
                 history_data.append((_d if _i == 0 else "", f"{_n}: {_v}"))
+        # Drop current-visit continuation rows so history[1:5] starts at the second visit
+        if len(history_data) > 1:
+            _nxt = next((i for i in range(1, len(history_data)) if history_data[i][0] != ""), len(history_data))
+            history_data = history_data[:1] + history_data[_nxt:]
 
     # Note aggregation — apply overrides if provided, otherwise use raw data notes
     latest_date = group_data[0][0]
