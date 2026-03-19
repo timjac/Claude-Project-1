@@ -904,8 +904,12 @@ elif st.session_state.page == "Admin Console":
                         _sm_fut,   _sm_fdays = _sp['future']
                         _sm_prev,  _sm_pdays = _sp['previous']
 
-                        _fut_edit_key  = f"admin_shift_fut_{_sel}"
-                        _show_fut_form = st.session_state.get(_fut_edit_key, False)
+                        _fut_edit_key   = f"admin_shift_fut_{_sel}"
+                        _show_fut_form  = st.session_state.get(_fut_edit_key, False)
+                        _upcoming_key   = f"admin_shift_upcoming_{_sel}"
+                        _show_upcoming  = st.session_state.get(_upcoming_key, False)
+                        _prev_key       = f"admin_shift_prev_{_sel}"
+                        _show_prev      = st.session_state.get(_prev_key, False)
 
                         def _render_pattern_table(pat, days):
                             _dmap = {(d['week_number'], d['day_of_week']): d for d in days}
@@ -975,34 +979,49 @@ elif st.session_state.page == "Admin Console":
                         st.divider()
 
                         # ── Upcoming change ───────────────────────────────
-                        st.markdown("**Upcoming Change**")
-                        if _sm_fut:
-                            st.caption(f"{_sm_fut['pattern_type'].title()} — takes effect {_sm_fut['anchor_date']}")
-                            _render_pattern_table(_sm_fut, _sm_fdays)
-                            _fcol1, _fcol2 = st.columns(2)
-                            if _fcol1.button(
-                                "📅 Reschedule" if not _show_fut_form else "✕ Cancel",
-                                key=f"sm_fut_toggle_{_sel}",
-                                type="primary" if _show_fut_form else "secondary",
-                                use_container_width=True
-                            ):
-                                st.session_state[_fut_edit_key] = not _show_fut_form
-                                st.rerun()
-                            if _fcol2.button("🗑️ Cancel Upcoming Change", key=f"sm_fut_cancel_{_sel}",
-                                             use_container_width=True):
-                                crm.cancel_future_pattern(_sel)
+                        _upcoming_label = (
+                            f"📅 Upcoming Change — from {_sm_fut['anchor_date']}" if _sm_fut
+                            else "📅 Upcoming Change"
+                        )
+                        if st.button(
+                            _upcoming_label if not _show_upcoming else "✕ Close",
+                            key=f"sm_upcoming_toggle_{_sel}",
+                            type="primary" if _show_upcoming else "secondary"
+                        ):
+                            st.session_state[_upcoming_key] = not _show_upcoming
+                            # close the schedule form when hiding this section
+                            if _show_upcoming:
                                 st.session_state[_fut_edit_key] = False
-                                st.success("Upcoming change cancelled.")
-                                st.rerun()
-                        else:
-                            st.caption("No upcoming change scheduled.")
-                            if st.button(
-                                "📅 Schedule Pattern Change" if not _show_fut_form else "✕ Cancel",
-                                key=f"sm_fut_toggle_{_sel}",
-                                type="primary" if _show_fut_form else "secondary"
-                            ):
-                                st.session_state[_fut_edit_key] = not _show_fut_form
-                                st.rerun()
+                            st.rerun()
+
+                        if _show_upcoming:
+                            if _sm_fut:
+                                st.caption(f"{_sm_fut['pattern_type'].title()} — takes effect {_sm_fut['anchor_date']}")
+                                _render_pattern_table(_sm_fut, _sm_fdays)
+                                _fcol1, _fcol2 = st.columns(2)
+                                if _fcol1.button(
+                                    "📅 Reschedule" if not _show_fut_form else "✕ Cancel",
+                                    key=f"sm_fut_toggle_{_sel}",
+                                    type="primary" if _show_fut_form else "secondary",
+                                    use_container_width=True
+                                ):
+                                    st.session_state[_fut_edit_key] = not _show_fut_form
+                                    st.rerun()
+                                if _fcol2.button("🗑️ Cancel Upcoming Change", key=f"sm_fut_cancel_{_sel}",
+                                                 use_container_width=True):
+                                    crm.cancel_future_pattern(_sel)
+                                    st.session_state[_fut_edit_key] = False
+                                    st.success("Upcoming change cancelled.")
+                                    st.rerun()
+                            else:
+                                st.caption("No upcoming change scheduled.")
+                                if st.button(
+                                    "📅 Schedule Pattern Change" if not _show_fut_form else "✕ Cancel",
+                                    key=f"sm_fut_toggle_{_sel}",
+                                    type="primary" if _show_fut_form else "secondary"
+                                ):
+                                    st.session_state[_fut_edit_key] = not _show_fut_form
+                                    st.rerun()
 
                         if _show_fut_form:
                             st.divider()
@@ -1080,13 +1099,19 @@ elif st.session_state.page == "Admin Console":
                                         st.success(f"✅ Pattern change scheduled from {_fut_anchor}.")
                                     st.rerun()
 
-                        st.divider()
-
                         # ── Previous pattern (reference only) ────────────
                         if _sm_prev:
-                            st.markdown("**Previous Pattern** *(reference)*")
-                            st.caption(f"{_sm_prev['pattern_type'].title()} — from {_sm_prev['anchor_date']}  ·  replaced {_sm_pat['anchor_date'] if _sm_pat else '—'}")
-                            _render_pattern_table(_sm_prev, _sm_pdays)
+                            st.divider()
+                            if st.button(
+                                f"🕐 Previous Pattern — from {_sm_prev['anchor_date']}" if not _show_prev else "✕ Close",
+                                key=f"sm_prev_toggle_{_sel}",
+                                type="primary" if _show_prev else "secondary"
+                            ):
+                                st.session_state[_prev_key] = not _show_prev
+                                st.rerun()
+                            if _show_prev:
+                                st.caption(f"{_sm_prev['pattern_type'].title()} — from {_sm_prev['anchor_date']}  ·  replaced {_sm_pat['anchor_date'] if _sm_pat else '—'}")
+                                _render_pattern_table(_sm_prev, _sm_pdays)
 
                     # ---- TIME OFF ----
                     elif _cur_sec == "time_off":
