@@ -1235,7 +1235,14 @@ elif st.session_state.page == "Admin Console":
             
             st.markdown("""
                 <style>
-                div.stButton > button { white-space: pre-wrap; text-align: center; height: 3.5rem; }
+                div.stButton > button {
+                    white-space: pre-wrap;
+                    text-align: center;
+                    min-height: 3.5rem;
+                    height: auto;
+                    word-break: break-word;
+                    overflow-wrap: break-word;
+                }
                 </style>
             """, unsafe_allow_html=True)
             _presets_layout = [
