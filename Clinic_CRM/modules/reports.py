@@ -231,7 +231,194 @@ class WireframePDF(FPDF):
         self.cell(0, FOOTER_LINE_H, f'Page {self.page_no()}', 0, 0, 'C')
 
 # ==========================================
-# 5. MAIN REPORT GENERATOR
+# 5. TEST-ONLY PREVIEW GENERATOR
+# ==========================================
+
+def create_test_preview_pdf(tests, report_config, theme_config=None):
+    """Renders just the test block — no logo, no patient banner, no footer text."""
+    if not theme_config:
+        theme_config = {
+            "page_bg": "#E6F5FF", "banner_bg": "#FFFFFF",
+            "inner_box": "#F8FBFF", "border": "#B4D2E6",
+            "text_primary": "#003366", "text_muted": "#505050",
+            "radius": 5, "spacing": 8, "font": "Helvetica"
+        }
+
+    pdf = WireframePDF(format='A4')
+    pdf.theme = theme_config
+    pdf.custom_footer_text = ""
+    font_fam = theme_config.get('font', 'Helvetica')
+
+    CUSTOM_FONTS = ["Roboto", "Montserrat", "Open Sans"]
+    if font_fam in CUSTOM_FONTS:
+        try:
+            pdf.add_font(font_fam, '', f'assets/fonts/{font_fam}-Regular.ttf', uni=True)
+            pdf.add_font(font_fam, 'B', f'assets/fonts/{font_fam}-Bold.ttf', uni=True)
+            pdf.add_font(font_fam, 'I', f'assets/fonts/{font_fam}-Italic.ttf', uni=True)
+        except Exception:
+            font_fam = 'Helvetica'
+            pdf.theme['font'] = 'Helvetica'
+
+    pdf.set_auto_page_break(auto=False)
+    pdf.add_page()
+
+    current_y = PAGE_MARGIN + INNER_PADDING
+
+    for item in report_config:
+        group_name = item['test']
+        group_data = [t for t in tests if t[4] == group_name]
+        if not group_data:
+            continue
+
+        group_data.sort(key=lambda x: x[0], reverse=True)
+        latest = group_data[0]
+
+        test_name = latest[1]
+        val = latest[2]
+        unit = latest[3]
+        config_str = latest[5]
+        display_target = latest[7] if latest[7] else 'N/A'
+
+        try:
+            config = json.loads(config_str) if config_str else {}
+        except json.JSONDecodeError:
+            config = {}
+
+        graph_type = config.get("graph_type", "none")
+        trend_chart_type = latest[16] if len(latest) > 16 else 'line'
+        _tc_raw = latest[17] if len(latest) > 17 else None
+        try:
+            trend_config_parsed = json.loads(_tc_raw) if _tc_raw else {}
+        except (json.JSONDecodeError, TypeError):
+            trend_config_parsed = {}
+
+        img_gauge, img_trend = None, None
+        display_title = group_name
+        display_val = str(val)
+        display_unit = unit if unit else ''
+        history_data = []
+        dynamic_chart_h = 42
+
+        if graph_type == 'none':
+            display_target = "N/A"
+            img_gauge = render_text(val, unit)
+            if trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
+            history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
+
+        elif graph_type == 'gauge':
+            img_gauge = render_gauge(val, config, test_name, unit)
+            if trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
+            history_data = [(t[0].split()[0], str(t[2])) for t in group_data]
+
+        elif graph_type == 'dot':
+            values_dict = {}
+            for t in group_data:
+                if t[2] is not None and t[1] not in values_dict:
+                    try:
+                        values_dict[t[1]] = float(t[2])
+                    except (ValueError, TypeError):
+                        pass
+            primary_config = config
+            for t in group_data:
+                try:
+                    t_cfg = json.loads(t[5] or '{}')
+                    if t_cfg.get("dots"):
+                        primary_config = t_cfg
+                        break
+                except json.JSONDecodeError:
+                    pass
+            img_gauge = render_dot(values_dict, primary_config, test_name, unit)
+            dots_cfg = primary_config.get("dots", [])
+            dot_vals = [str(values_dict.get(d["test_name"], "?")) for d in dots_cfg if d["test_name"] in values_dict]
+            display_val = "/".join(dot_vals) if dot_vals else str(val)
+            _dot_names = [d["test_name"] for d in dots_cfg if d.get("test_name")]
+            if len(_dot_names) >= 2:
+                sys_data = sorted([t for t in group_data if t[1] == _dot_names[0]], key=lambda x: x[0], reverse=True)
+                dia_data = sorted([t for t in group_data if t[1] == _dot_names[1]], key=lambda x: x[0], reverse=True)
+            else:
+                sys_data = sorted([t for t in group_data if "Systolic" in t[1]], key=lambda x: x[0], reverse=True)
+                dia_data = sorted([t for t in group_data if "Diastolic" in t[1]], key=lambda x: x[0], reverse=True)
+            if trend_chart_type == 'bp_trend' and len(sys_data) > 1 and len(dia_data) > 1:
+                img_trend = create_bp_trend_chart(sys_data, dia_data, primary_config, trend_config=trend_config_parsed)
+            elif trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
+            history_dict = {}
+            sys_key = _dot_names[0] if len(_dot_names) >= 1 else None
+            dia_key = _dot_names[1] if len(_dot_names) >= 2 else None
+            for t in group_data:
+                d_key = t[0].split()[0]
+                if d_key not in history_dict:
+                    history_dict[d_key] = {"sys": "?", "dia": "?"}
+                if t[1] == sys_key:
+                    history_dict[d_key]["sys"] = t[2]
+                elif t[1] == dia_key:
+                    history_dict[d_key]["dia"] = t[2]
+            history_data = [(d_key, f"{history_dict[d_key]['sys']}/{history_dict[d_key]['dia']}")
+                            for d_key in sorted(history_dict.keys(), reverse=True)]
+
+        elif graph_type == 'bar':
+            panel_items = []
+            for t_name in list(set([t[1] for t in group_data])):
+                t_data = sorted([t for t in group_data if t[1] == t_name], key=lambda x: x[0], reverse=True)
+                latest_t = t_data[0]
+                try:
+                    t_config = json.loads(latest_t[5] or '{}') if latest_t[5] else {}
+                except json.JSONDecodeError:
+                    t_config = {}
+                panel_items.append({
+                    "name": latest_t[1], "value": latest_t[2], "unit": latest_t[3],
+                    "target": latest_t[7] if latest_t[7] else "", "config": t_config
+                })
+            panel_items.sort(key=lambda x: x["name"])
+            img_gauge = render_bars(panel_items)
+            display_val = "\n".join([
+                f"{item['name'].replace(f' {group_name}', '').replace('Cholesterol', '').strip()}: "
+                f"{item['value']} {item['unit']}"
+                for item in panel_items
+            ])
+            display_unit = ""
+            display_target = "See Chart"
+            dynamic_chart_h = max(42, 20 + (len(panel_items) * 10))
+            if trend_chart_type == 'multi_trend':
+                unique_dates = list(set([t[0].split()[0] for t in group_data]))
+                if len(unique_dates) > 1:
+                    img_trend = create_multi_trend_chart(group_data, trend_config=trend_config_parsed)
+            elif trend_chart_type == 'line' and len(group_data) > 1:
+                img_trend = create_trend_chart(group_data, test_name, unit, trend_config=trend_config_parsed)
+            history_dict = {}
+            for t in group_data:
+                d_key = t[0].split()[0]
+                t_clean = t[1].replace(f" {group_name}", "").replace("Cholesterol", "").strip()
+                if d_key not in history_dict:
+                    history_dict[d_key] = []
+                history_dict[d_key].append(f"{t_clean}: {t[2]}")
+            history_data = [(d_key, " | ".join(sorted(history_dict[d_key])))
+                            for d_key in sorted(history_dict.keys(), reverse=True)]
+
+        history_data = [(t[0], str(t[2])) for t in group_data]
+
+        current_y = draw_test_block(
+            pdf_obj=pdf,
+            y_pos=current_y,
+            title=display_title,
+            val=display_val,
+            unit=display_unit,
+            date=latest[0],
+            target=display_target,
+            note="Sample result note - reflects how notes appear on the printed report.",
+            img_gauge=img_gauge,
+            img_trend=img_trend,
+            chart_box_h=dynamic_chart_h,
+            history=history_data
+        )
+
+    return bytes(pdf.output())
+
+
+# ==========================================
+# 6. MAIN REPORT GENERATOR
 # ==========================================
 
 def create_custom_report_pdf(patient, tests, report_config, note_overrides, start_d, end_d, practitioner_statement, next_steps, footer_text, creator_name, theme_config=None):

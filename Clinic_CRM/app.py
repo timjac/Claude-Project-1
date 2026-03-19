@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta, date
 from modules.clinic_crm import ClinicCRM
 from streamlit_sortables import sort_items
-from modules.reports import create_custom_report_pdf
+from modules.reports import create_custom_report_pdf, create_test_preview_pdf
 from app_functions import (
     go_to_lobby, go_to_patient, get_patient_details, get_patient_encounters, get_patient_notes,
     get_patient_tests, get_field_definitions, calculate_age, get_notes_for_encounter, log_report_generation,
@@ -2190,26 +2190,15 @@ elif st.session_state.page == "Admin Console":
                                 ))
 
                     if _prev_tests:
-                        _prev_patient = {
-                            "first_name": "Preview", "last_name": "Patient",
-                            "dob": "1985-06-15", "patient_id": "DEMO-001"
-                        }
                         _prev_theme = st.session_state.get('designer_theme') or {
                             "page_bg": "#E6F5FF", "banner_bg": "#FFFFFF",
                             "inner_box": "#F8FBFF", "border": "#B4D2E6",
                             "text_primary": "#003366", "text_muted": "#505050",
                             "radius": 5, "spacing": 8, "font": "Helvetica"
                         }
-                        _prev_pdf = create_custom_report_pdf(
-                            patient=_prev_patient,
+                        _prev_pdf = create_test_preview_pdf(
                             tests=_prev_tests,
                             report_config=_prev_config,
-                            note_overrides={},
-                            start_d=None, end_d=None,
-                            practitioner_statement="",
-                            next_steps="",
-                            footer_text="Preview Only",
-                            creator_name=st.session_state.get('username', 'Admin'),
                             theme_config=_prev_theme
                         )
                         _b64_prev = base64.b64encode(_prev_pdf).decode()
